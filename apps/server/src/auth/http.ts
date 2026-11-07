@@ -30,6 +30,7 @@ import * as Cookies from "effect/http/Cookies";
 import * as HttpEffect from "effect/http/HttpEffect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import * as Option from "effect/Option";
 
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -273,7 +274,7 @@ export const layer = HttpApiBuilder.group(
           function* (args) {
             yield* annotateEnvironmentRequest(args.endpoint.name);
             const request = yield* HttpServerRequest.HttpServerRequest;
-            const result = yield* serverAuth.getSessionState(request);
+            let result = yield* serverAuth.getSessionState(request);
             const credential = EnvironmentAuth.selectRequestCredential(
               request,
               sessions.cookieName,
@@ -287,6 +288,31 @@ export const layer = HttpApiBuilder.group(
             ) {
               yield* appendSessionCookie(sessions.cookieName, credential.token, result.expiresAt);
               yield* appendCredentialResponseHeaders;
+            }
+            if (!result.authenticated) {
+              const accessBootstrap = yield* serverAuth
+                .establishBrowserSessionFromCloudflareAccessIfGranted(
+                  request,
+                  deriveAuthClientMetadata({ request }),
+                )
+                .pipe(
+                  Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+                    failEnvironmentInternal("internal_error", error),
+                  ),
+                );
+              if (Option.isSome(accessBootstrap)) {
+                const established = accessBootstrap.value;
+                yield* appendSessionCookie(
+                  sessions.cookieName,
+                  established.sessionToken,
+                  established.response.expiresAt,
+                );
+                yield* appendCredentialResponseHeaders;
+                result = {
+                  ...established.response,
+                  auth: result.auth,
+                };
+              }
             }
             return result;
           },
@@ -309,6 +335,7 @@ export const layer = HttpApiBuilder.group(
             const result = yield* serverAuth.createBrowserSession(
               args.payload.credential,
               deriveAuthClientMetadata({ request }),
+              request,
               previousCredential &&
                 EnvironmentAuth.isBrowserCookieCredential(previousCredential.source)
                 ? previousCredential.token

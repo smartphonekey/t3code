@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as CloudflareAccessIdentity from "./CloudflareAccessIdentity.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -39,6 +40,7 @@ const layerEnvironmentAuth = (
   policy?: ManagedPolicyDocument,
 ) =>
   EnvironmentAuth.layer.pipe(
+    Layer.provideMerge(CloudflareAccessIdentity.layerTest()),
     Layer.provide(ManagedPolicy.layerTest(policy)),
     Layer.provideMerge(ServerSecretStore.layer),
     Layer.provideMerge(SqlitePersistence.layerMemory),

@@ -152,6 +152,7 @@ import {
   decodeRuntimeConfig,
   RELAY_URL_SECRET,
 } from "./cloud/config.ts";
+import * as CloudflareAccessIdentity from "./auth/CloudflareAccessIdentity.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as EnvironmentAuthPolicy from "./auth/EnvironmentAuthPolicy.ts";
 import * as CloudHttp from "./cloud/http.ts";
@@ -526,6 +527,8 @@ const layerAuth = EnvironmentAuth.layer.pipe(
   Layer.provideMerge(layerPersistence),
   Layer.provide(layerServerEnvironment),
   Layer.provide(ServerSecretStore.layer),
+  Layer.provideMerge(CloudflareAccessIdentity.layer),
+  Layer.provide(layerServerSettings),
 );
 
 const layerCloudManagedEndpointRuntime = Layer.mergeAll(

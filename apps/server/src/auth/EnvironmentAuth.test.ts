@@ -18,6 +18,7 @@ import * as Redacted from "effect/Redacted";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as CloudflareAccessIdentity from "./CloudflareAccessIdentity.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -41,6 +42,7 @@ const layerServerConfig = (overrides?: Partial<ServerConfig.ServerConfig["Servic
 
 const layerEnvironmentAuth = (overrides?: Partial<ServerConfig.ServerConfig["Service"]>) =>
   EnvironmentAuth.layer.pipe(
+    Layer.provideMerge(CloudflareAccessIdentity.layerTest()),
     Layer.provide(ManagedPolicy.layerTest()),
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provide(ServerSecretStore.layer),

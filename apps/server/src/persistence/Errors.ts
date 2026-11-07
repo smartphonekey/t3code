@@ -113,6 +113,7 @@ export type OrchestrationCommandReceiptRepositoryError =
 
 export type ProviderSessionRuntimeRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 export type AuthPairingLinkRepositoryError = PersistenceSqlError | PersistenceDecodeError;
+export type AuthCloudflareAccessGrantRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 export type AuthSessionRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 export type PullRequestFilesViewedRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 export type PullRequestReviewGuideRepositoryError = PersistenceSqlError | PersistenceDecodeError;

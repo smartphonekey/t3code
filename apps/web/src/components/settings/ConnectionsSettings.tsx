@@ -1,3 +1,4 @@
+import { CloudflareAccessIdentitySettings } from "./CloudflareAccessIdentitySettings";
 import { SessionPermissions } from "./SessionPermissions";
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
@@ -43,6 +44,7 @@ import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
+import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Input } from "../ui/input";
 import {
   Dialog,
@@ -288,6 +290,8 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   );
   const canReadAccess = useEnvironmentScope(primaryEnvironmentId, AuthAccessReadScope);
   const canWriteAccess = useEnvironmentScope(primaryEnvironmentId, AuthAccessWriteScope);
+  const scopedSettings = useScopedSettings();
+  const updateScopedSettings = useUpdateScopedSettings();
   const canReadRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayReadScope);
   const canMaintain = useEnvironmentScope(primaryEnvironmentId, AuthEnvironmentMaintainScope);
   const canManageRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayWriteScope);
@@ -1207,6 +1211,12 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
                 )}
               </ScrollArea>
             </FoldedSettingsSection>
+          ) : null}
+          {canWriteAccess && !desktopBridge ? (
+            <CloudflareAccessIdentitySettings
+              settings={scopedSettings}
+              updateSettings={updateScopedSettings}
+            />
           ) : null}
           <AlertDialog
             open={pendingDesktopServerExposureMode !== null && canManageLocalBackend}

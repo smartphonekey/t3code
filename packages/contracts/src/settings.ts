@@ -1278,6 +1278,19 @@ export const ServerSettings = Schema.Struct({
    * and tasks on another machine; tasks already running there finish.
    */
   linkedEnvironmentsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * When enabled behind Cloudflare Access, remember a verified human Access identity after the
+   * first successful pairing so later browsers for that same identity can skip pairing.
+   */
+  enableCloudflareAccessIdentityPairing: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  /** Cloudflare Zero Trust team domain, for example `acme.cloudflareaccess.com`. */
+  cloudflareAccessTeamDomain: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /** Cloudflare Access application audience (AUD) tag for this app. */
+  cloudflareAccessApplicationAudience: TrimmedString.pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
   sidebarAutoSettleKeepPullRequests: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1659,6 +1672,9 @@ export const ServerSettingsPatch = Schema.Struct({
   hideTaggedThreads: Schema.optionalKey(Schema.Boolean),
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
+  enableCloudflareAccessIdentityPairing: Schema.optionalKey(Schema.Boolean),
+  cloudflareAccessTeamDomain: Schema.optionalKey(TrimmedString),
+  cloudflareAccessApplicationAudience: Schema.optionalKey(TrimmedString),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
       schemaVersion: Schema.optionalKey(Schema.Literal(1)),

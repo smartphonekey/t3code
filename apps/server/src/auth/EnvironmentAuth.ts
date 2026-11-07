@@ -39,6 +39,8 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
+import * as CloudflareAccessIdentity from "./CloudflareAccessIdentity.ts";
+import type { CloudflareAccessVerifiedIdentity } from "./cloudflareAccessJwt.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -460,6 +462,7 @@ export class EnvironmentAuth extends Context.Service<
     readonly createBrowserSession: (
       credential: string,
       requestMetadata: AuthClientMetadata,
+      request?: HttpServerRequest.HttpServerRequest,
       previousSessionToken?: string,
     ) => Effect.Effect<
       {
@@ -469,6 +472,16 @@ export class EnvironmentAuth extends Context.Service<
         readonly expireNormalCookie?: boolean;
       },
       ServerAuthInvalidCredentialError | ServerAuthInternalError
+    >;
+    readonly establishBrowserSessionFromCloudflareAccessIfGranted: (
+      request: HttpServerRequest.HttpServerRequest,
+      requestMetadata: AuthClientMetadata,
+    ) => Effect.Effect<
+      Option.Option<{
+        readonly response: AuthBrowserSessionResult;
+        readonly sessionToken: string;
+      }>,
+      ServerAuthInternalError
     >;
     readonly exchangeBootstrapCredentialForAccessToken: (
       credential: string,
@@ -712,6 +725,9 @@ function isBrowserOriginAllowed(
 export const make = Effect.gen(function* () {
   const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
   const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
+  const cloudflareAccessIdentityOption = yield* Effect.serviceOption(
+    CloudflareAccessIdentity.CloudflareAccessIdentity,
+  );
   const sessions = yield* SessionStore.SessionStore;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const digest = yield* Digest.Digest;
@@ -770,6 +786,50 @@ export const make = Effect.gen(function* () {
     ...DESKTOP_RENDERER_ORIGINS,
     ...config.devAllowedOrigins,
   ]);
+
+  const issueBrowserSessionFromCloudflareAccessGrant = Effect.fn(
+    "EnvironmentAuth.issueBrowserSessionFromCloudflareAccessGrant",
+  )(function* (request: HttpServerRequest.HttpServerRequest, requestMetadata: AuthClientMetadata) {
+    const grantOption = Option.isNone(cloudflareAccessIdentityOption)
+      ? Option.none<CloudflareAccessIdentity.CloudflareAccessIdentityGrant>()
+      : yield* cloudflareAccessIdentityOption.value
+          .findGrantForRequest(request)
+          .pipe(
+            Effect.orElseSucceed(() =>
+              Option.none<CloudflareAccessIdentity.CloudflareAccessIdentityGrant>(),
+            ),
+          );
+    if (Option.isNone(grantOption)) {
+      return Option.none();
+    }
+    const grant = grantOption.value;
+    if (
+      !isBrowserOriginAllowed(request, trustedBrowserOrigins) &&
+      request.headers.origin !== undefined
+    ) {
+      return Option.none();
+    }
+    const session = yield* sessions
+      .issue({
+        method: "browser-session-cookie",
+        subject: grant.sessionSubject,
+        scopes: grant.scopes,
+        client: {
+          ...requestMetadata,
+          ...(grant.identity.email ? { label: grant.identity.email } : {}),
+        },
+      })
+      .pipe(Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })));
+    return Option.some({
+      response: {
+        authenticated: true,
+        ...authScopeResponse(session.scopes),
+        sessionMethod: session.method,
+        expiresAt: DateTime.toUtc(session.expiresAt),
+      } satisfies AuthBrowserSessionResult,
+      sessionToken: session.token,
+    });
+  });
 
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
@@ -846,7 +906,7 @@ export const make = Effect.gen(function* () {
 
   const createBrowserSession: EnvironmentAuth["Service"]["createBrowserSession"] = Effect.fn(
     "EnvironmentAuth.createBrowserSession",
-  )(function* (credential, requestMetadata, previousSessionToken) {
+  )(function* (credential, requestMetadata, request, previousSessionToken) {
     if (devAuth?.matches(credential)) {
       return yield* sessions.verify(credential).pipe(
         mapSessionVerificationErrors,
@@ -895,6 +955,21 @@ export const make = Effect.gen(function* () {
         },
       })
       .pipe(Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })));
+    if (request !== undefined && Option.isSome(cloudflareAccessIdentityOption)) {
+      const cloudflareAccessIdentity = cloudflareAccessIdentityOption.value;
+      const identityOption = yield* cloudflareAccessIdentity
+        .verifyRequestIdentity(request)
+        .pipe(Effect.orElseSucceed(() => Option.none<CloudflareAccessVerifiedIdentity>()));
+      if (Option.isSome(identityOption)) {
+        yield* cloudflareAccessIdentity
+          .recordGrantAfterPairing({
+            identity: identityOption.value,
+            scopes: grant.scopes,
+            sessionSubject: grant.subject,
+          })
+          .pipe(Effect.ignore);
+      }
+    }
     return {
       response: {
         authenticated: true,
@@ -905,6 +980,13 @@ export const make = Effect.gen(function* () {
       sessionToken: session.token,
     } satisfies BootstrapExchangeResult;
   });
+
+  const establishBrowserSessionFromCloudflareAccessIfGranted: EnvironmentAuth["Service"]["establishBrowserSessionFromCloudflareAccessIfGranted"] =
+    (request, requestMetadata) =>
+      issueBrowserSessionFromCloudflareAccessGrant(request, requestMetadata).pipe(
+        Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })),
+        Effect.withSpan("EnvironmentAuth.establishBrowserSessionFromCloudflareAccessIfGranted"),
+      );
 
   type ResolvedBootstrapGrant = Pick<
     PairingGrantStore.BootstrapGrant,
@@ -1387,6 +1469,7 @@ export const make = Effect.gen(function* () {
     }),
     getSessionState,
     createBrowserSession,
+    establishBrowserSessionFromCloudflareAccessIfGranted,
     exchangeBootstrapCredentialForAccessToken,
     createPairingLink,
     issuePairingCredential,
