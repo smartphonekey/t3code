@@ -94,6 +94,7 @@ import {
 import { pruneNewTaskFlowStates } from "./features/threads/new-task-flow-state";
 import { pruneNewTaskBranchCheckouts } from "./features/threads/NewTaskDraftRouteScreen";
 import { installAppUpdateChecks } from "./features/updates/app-updates";
+import { CloudflareAccessLoginCoordinator } from "./features/cloudflareAccess/CloudflareAccessLoginCoordinator";
 
 import "../global.css";
 
@@ -236,6 +237,7 @@ function AppContent() {
       <GestureHandlerRootView className="flex-1">
         <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
+            <CloudflareAccessLoginCoordinator />
             <StatusBar barStyle={themeAppearance === "dark" ? "light-content" : "dark-content"} />
             {/* native-stack needs the theme's dark flag to select dark native headers. */}
             <GlobalVoiceInputControl>
