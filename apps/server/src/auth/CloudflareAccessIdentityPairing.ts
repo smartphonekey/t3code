@@ -232,6 +232,7 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(CloudflareAccessIdentityPairing, make).pipe(
   Layer.provideMerge(AuthCloudflareAccessIdentities.layer),
+  Layer.provideMerge(SessionStore.layer),
 );
 
 export const applyCloudflareAccessSessionState = (
