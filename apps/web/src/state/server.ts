@@ -182,7 +182,7 @@ export const providersIgnoringCheckedAtAtom = Atom.family((environmentId: Enviro
   Atom.make((get): ReadonlyArray<ServerProvider> =>
     reuseProvidersIgnoringCheckedAt(
       Option.getOrNull(get.self<ReadonlyArray<ServerProvider>>()),
-      get(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS,
+      get(serverEnvironment.rawProvidersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS,
     ),
   ).pipe(Atom.withLabel(`web-providers-ignoring-checked-at:${environmentId}`)),
 );

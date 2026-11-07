@@ -1,8 +1,10 @@
+import { orderSubscriptionProviders } from "@t3tools/contracts";
+import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { ActiveNewTaskContext } from "../../state/active-new-task";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { useNowMinuteMs } from "../../lib/clock";
 import * as Dialog from "../../components/ui/Dialog";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   EnvironmentId,
@@ -331,7 +333,23 @@ export function NewTaskFlowProvider(
   const storedStickyModelSelection = useStickyComposerModelSelection();
   const modelSelectionNow = useNowMinuteMs();
   const projectDefaults = useNewTaskProjectDefaults(selectedProject);
-  const selectedEnvironmentServerConfig = projectDefaults.serverConfig;
+  const subscriptionUserId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
+  const rawServerConfig = projectDefaults.serverConfig;
+  const selectedEnvironmentServerConfig = useMemo(
+    () =>
+      rawServerConfig === null
+        ? null
+        : {
+            ...rawServerConfig,
+            providers: orderSubscriptionProviders(
+              rawServerConfig.providers,
+              rawServerConfig.settings.providerSubscriptions,
+              subscriptionUserId,
+              modelSelectionNow,
+            ),
+          },
+    [rawServerConfig, subscriptionUserId, modelSelectionNow],
+  );
   const isScratchDraft = projectDefaults.isScratch;
   const serverConfigs = useServerConfigs();
   const { connectedEnvironments } = useRemoteConnectionStatus();
@@ -432,11 +450,33 @@ export function NewTaskFlowProvider(
     selectedProjectDraft.modelSelection ?? null,
     selectedProject?.id ?? null,
   );
-  const projectDefaultModelSelection = resolveDefaultableModelSelection(
+  const configuredProjectDefaultModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
     projectSettings.settings.defaultModelSelection,
     selectedProject?.id ?? null,
   );
+  const defaultDriver = selectedEnvironmentServerConfig?.providers.find(
+    (provider) => provider.instanceId === configuredProjectDefaultModelSelection?.instanceId,
+  )?.driver;
+  const personal = selectedEnvironmentServerConfig?.providers.find(
+    (provider) =>
+      subscriptionUserId !== null &&
+      selectedEnvironmentServerConfig.settings.providerSubscriptions[provider.instanceId]
+        ?.ownerUserId === subscriptionUserId &&
+      (defaultDriver === undefined || provider.driver === defaultDriver) &&
+      provider.enabled &&
+      provider.status === "ready",
+  );
+  const personalModel =
+    personal?.models.find(
+      (model) => model.slug === configuredProjectDefaultModelSelection?.model,
+    ) ??
+    personal?.models.find((model) => model.isDefault) ??
+    personal?.models[0];
+  const projectDefaultModelSelection =
+    personal && personalModel
+      ? { instanceId: personal.instanceId, model: personalModel.slug }
+      : configuredProjectDefaultModelSelection;
   const stickyModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
     storedStickyModelSelection,

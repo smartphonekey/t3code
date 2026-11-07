@@ -1,3 +1,4 @@
+import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -1298,7 +1299,9 @@ export default function ChatView(props: ChatViewProps) {
     activeProject?.id ?? null,
   );
   const activeThreadModelInstanceId = activeThread?.modelSelection.instanceId;
+  const subscriptionUserId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
   const { selectedProviderEntry, requestedDriverKind } = resolveComposerProviderSelection({
+    currentUserId: subscriptionUserId,
     entries: providerInstanceEntries,
     candidateInstanceIds: [
       selectedProviderByThreadId,

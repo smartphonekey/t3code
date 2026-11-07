@@ -442,6 +442,8 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
 );
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  /** Server-verified requester inherited by background work. */
+  billingUserId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Account ownership is display metadata, not an authorization boundary. */
   ownerUserId: Schema.optional(TrimmedNonEmptyString),
   ...OrchestrationV2CreationFields,
@@ -676,6 +678,7 @@ export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
 export const ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE = "workspace_preparation_failed";
 
 export const OrchestrationV2Run = Schema.Struct({
+  requesterUserId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   id: RunId,
   threadId: ThreadId,
   ordinal: PositiveInt,

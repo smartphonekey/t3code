@@ -1,3 +1,4 @@
+import { ProviderSubscription } from "./providerSubscription.ts";
 import { EasDeviceHostConfigs, SimlockDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
 import {
   AuthOrchestrationOperateScope,
@@ -1409,6 +1410,9 @@ export const ServerSettings = Schema.Struct({
   ),
 
   // Schema.Unknown preserves unknown-driver configs across versions; see providerInstance.ts.
+  providerSubscriptions: Schema.Record(ProviderInstanceId, ProviderSubscription).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1811,6 +1815,17 @@ export function requiredScopesForServerSettingsPatch(
     ...(changesSettings || !changesProviders ? [AuthSettingsWriteScope] : []),
     ...(changesProviders ? [AuthProvidersManageScope] : []),
   ];
+}
+
+export function requiredScopesForServerSettingsUpdate(
+  patch: ServerSettingsPatch,
+  hasProviderMutation: boolean,
+): ReadonlyArray<AuthEnvironmentScope> {
+  const scopes = requiredScopesForServerSettingsPatch(patch);
+  if (!hasProviderMutation) return scopes;
+  return Object.values(patch).every((value) => value === undefined)
+    ? [AuthProvidersManageScope]
+    : [...new Set([...scopes, AuthProvidersManageScope])];
 }
 
 /** Host-executed project scripts require settings-write authority in addition to orchestration:operate. */

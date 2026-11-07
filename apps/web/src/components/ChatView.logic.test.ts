@@ -521,6 +521,29 @@ describe("resolveComposerProviderSelection", () => {
     });
   }
 
+  it("prefers the person's account over the project default while keeping explicit choices", () => {
+    const shared = entry("codex", "codex_shared");
+    const personal = { ...entry("codex", "codex_personal"), ownerUserId: "alice" };
+    const input = {
+      entries: [shared, personal],
+      lockedProvider: null,
+      lockedInstanceId: null,
+      currentUserId: "alice",
+    };
+    expect(
+      resolveComposerProviderSelection({
+        ...input,
+        candidateInstanceIds: [null, null, null, shared.instanceId],
+      }).selectedProviderEntry?.instanceId,
+    ).toBe(personal.instanceId);
+    expect(
+      resolveComposerProviderSelection({
+        ...input,
+        candidateInstanceIds: [shared.instanceId, null, null, shared.instanceId],
+      }).selectedProviderEntry?.instanceId,
+    ).toBe(shared.instanceId);
+  });
+
   it.each([
     ["claudeAgent", "claude_work"],
     ["codex", "codex_work"],

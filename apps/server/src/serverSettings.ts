@@ -1,3 +1,4 @@
+import { RequestAccount } from "./auth/RequestAccount.ts";
 import {
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
@@ -6,6 +7,7 @@ import {
   keepUnknownOverrideKeys,
   ProjectSettingsOverrides,
   type ProviderInstanceConfig,
+  type ProviderSubscription,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
   isProviderDriverKind,
@@ -250,6 +252,59 @@ function ensureProviderInstanceMutationAllowed(
   return Effect.void;
 }
 
+const ensureSubscriptionOwner = Effect.fn("serverSettings.ensureSubscriptionOwner")(function* (
+  settings: ServerSettings,
+  instanceId: string,
+  settingsPath: string,
+) {
+  const account = yield* RequestAccount;
+  const owner = settings.providerSubscriptions[instanceId as ProviderInstanceId]?.ownerUserId;
+  if (account !== undefined && owner !== undefined && account.userId !== owner)
+    return yield* new ServerSettingsError({
+      settingsPath,
+      operation: "write-file",
+      cause: new Error("Only the subscription owner can change this provider account."),
+    });
+});
+
+const ensureSubscriptionPatchAllowed = Effect.fn("serverSettings.ensureSubscriptionPatchAllowed")(
+  function* (settings: ServerSettings, patch: ServerSettingsPatch, settingsPath: string) {
+    if (patch.providerInstances === undefined) return;
+    for (const id of new Set([
+      ...Object.keys(settings.providerInstances),
+      ...Object.keys(patch.providerInstances),
+    ]))
+      yield* ensureSubscriptionOwner(settings, id, settingsPath);
+  },
+);
+
+function replaceSubscription(
+  current: ServerSettings,
+  instanceId: ProviderInstanceId,
+  subscription: ProviderSubscription | null,
+  expectedOwner: string | null | undefined,
+  settingsPath: string,
+) {
+  if (
+    expectedOwner !== undefined &&
+    (current.providerSubscriptions[instanceId]?.ownerUserId ?? null) !== expectedOwner
+  )
+    return Effect.fail(
+      new ServerSettingsError({
+        settingsPath,
+        operation: "write-file",
+        cause: new Error("Subscription ownership changed. Refresh and try again."),
+      }),
+    );
+  return Effect.succeed({
+    ...current,
+    providerSubscriptions: Object.fromEntries([
+      ...Object.entries(current.providerSubscriptions).filter(([id]) => id !== instanceId),
+      ...(subscription === null ? [] : [[instanceId, subscription] as const]),
+    ]),
+  });
+}
+
 export class ServerSettingsService extends Context.Service<
   ServerSettingsService,
   {
@@ -266,6 +321,11 @@ export class ServerSettingsService extends Context.Service<
       patch: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
+    readonly setProviderSubscription: (
+      instanceId: ProviderInstanceId,
+      subscription: ProviderSubscription | null,
+      expectedOwner?: string | null,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
     readonly updateProviderInstance: (
       mutation: ProviderInstanceMutation,
       patch?: ServerSettingsPatch,
@@ -326,12 +386,20 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     getSettings,
     updateSettings: (patch) =>
       updateTestSettings((currentSettings) =>
-        Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
+        ensureSubscriptionPatchAllowed(currentSettings, patch, "test settings").pipe(
+          Effect.as(applyServerSettingsPatch(currentSettings, patch)),
+        ),
+      ),
+    setProviderSubscription: (instanceId, subscription, expectedOwner) =>
+      updateTestSettings((current) =>
+        replaceSubscription(current, instanceId, subscription, expectedOwner, "test settings"),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
       updateTestSettings((currentSettings) =>
         Effect.gen(function* () {
           yield* ensureProviderInstanceMutationAllowed(currentSettings, mutation, "test settings");
+          yield* ensureSubscriptionOwner(currentSettings, mutation.instanceId, "test settings");
+          yield* ensureSubscriptionPatchAllowed(currentSettings, patch, "test settings");
           const patched = applyServerSettingsPatch(currentSettings, patch);
           return applyProviderInstanceMutation(patched, mutation);
         }),
@@ -1345,14 +1413,21 @@ const make = Effect.gen(function* () {
     updateSettings: (patch) =>
       updateAndPersistSettings(patch, (current) =>
         ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
+          Effect.andThen(ensureSubscriptionPatchAllowed(current, patch, settingsPath)),
           Effect.as(applyServerSettingsPatch(current, patch)),
         ),
+      ),
+    setProviderSubscription: (instanceId, subscription, expectedOwner) =>
+      updateAndPersistSettings({}, (current) =>
+        replaceSubscription(current, instanceId, subscription, expectedOwner, settingsPath),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
       updateAndPersistSettings(patch, (current) =>
         Effect.gen(function* () {
           yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
           yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
+          yield* ensureSubscriptionOwner(current, mutation.instanceId, settingsPath);
+          yield* ensureSubscriptionPatchAllowed(current, patch, settingsPath);
           const patched = applyServerSettingsPatch(current, patch);
           return applyProviderInstanceMutation(patched, mutation);
         }),

@@ -1,3 +1,4 @@
+import { RequestAccount } from "../auth/RequestAccount.ts";
 import {
   ContextTransferId,
   OrchestrationV2Actor,
@@ -102,8 +103,10 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       }
       // The remote parent delegated the source thread, not its forks.
       const { delegatedFrom: _delegatedFrom, ...inherited } = input.sourceProjection.thread;
+      const account = yield* RequestAccount;
       const targetThread: OrchestrationV2AppThread = {
         ...inherited,
+        ...(account === undefined ? {} : { billingUserId: account.userId }),
         ...(input.ownerUserId === undefined ? {} : { ownerUserId: input.ownerUserId }),
         // PR context follows the conversation; watching remains the source thread's responsibility.
         pullRequests: input.sourceProjection.thread.pullRequests?.map(
