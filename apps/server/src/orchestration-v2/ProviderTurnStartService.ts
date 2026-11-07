@@ -1,3 +1,4 @@
+import { canUseProviderSubscription } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
@@ -156,6 +157,7 @@ export const layer: Layer.Layer<
     const path = yield* Path.Path;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
+    const subscriptionSettings = yield* ServerSettings.ServerSettingsService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
@@ -295,8 +297,7 @@ export const layer: Layer.Layer<
                 const request = turnItems.find((item) => item.type === "run_interrupt_request");
                 return request?.type === "run_interrupt_request" ? request.message : undefined;
               }),
-              // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-              Effect.catchCause(() => Effect.succeed(undefined)),
+              Effect.catchCause(() => Effect.undefined),
             ),
       };
     };
@@ -350,6 +351,23 @@ export const layer: Layer.Layer<
       if (run.status !== "starting") {
         return;
       }
+      const subscription = (yield* subscriptionSettings.getSettings).providerSubscriptions[
+        run.providerInstanceId
+      ];
+      if (
+        !canUseProviderSubscription(
+          subscription,
+          run.requesterUserId === undefined
+            ? (projection.thread.billingUserId ?? null)
+            : run.requesterUserId,
+          DateTime.toEpochMillis(yield* DateTime.now),
+        )
+      )
+        return yield* new ProviderTurnStartError({
+          runId,
+          cause: "Subscription sharing was revoked or expired before this turn could start.",
+        });
+
       const rootNode = projection.nodes.find((candidate) => candidate.id === run.rootNodeId);
       const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
       const providerThread = projection.providerThreads.find(
@@ -700,15 +718,9 @@ export const layer: Layer.Layer<
       });
       const { isCurrentAttemptInStatus } = runControls;
 
-      // A side chat shares its parent's worktree; the turn that gets its context asks before acting.
       const resolvedPolicy = yield* runtimePolicy
         .resolve({
-          thread:
-            projection.thread.lineage.sideChat === true &&
-            (sideChatHandoff !== undefined ||
-              !projection.runs.some((previous) => previous.ordinal < run.ordinal))
-              ? { ...projection.thread, runtimeMode: "approval-required" }
-              : projection.thread,
+          thread: projection.thread,
           modelSelection: run.modelSelection,
         })
         .pipe(Effect.result);

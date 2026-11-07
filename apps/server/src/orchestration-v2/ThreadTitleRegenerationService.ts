@@ -1,3 +1,6 @@
+import * as DateTime from "effect/DateTime";
+import { RequestAccount } from "../auth/RequestAccount.ts";
+import { canUseProviderSubscription } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { isAttachmentOnlyBootstrapPrompt } from "@t3tools/shared/composerContextReferences";
 import {
@@ -115,7 +118,7 @@ const make = Effect.gen(function* () {
       | { readonly type: "complete"; readonly title?: string } = yield* Effect.gen(function* () {
       const projection = yield* threads.getThreadRecords(
         input.threadId,
-        ["messages"],
+        ["messages", "runs"],
         input.kind.type === "initial"
           ? { messageIds: [input.kind.messageId] }
           : { messageRoles: ["user", "assistant"] },
@@ -167,15 +170,32 @@ const make = Effect.gen(function* () {
       const worktreeExists =
         worktreePath !== null &&
         (yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false)));
-      const result = yield* textGeneration.generateThreadTitle({
+      const sourceRun = projection.runs.find((run) => run.id === projection.messages.at(-1)?.runId);
+      const billingUserId =
+        sourceRun?.requesterUserId === undefined
+          ? (projection.thread.billingUserId ?? null)
+          : sourceRun.requesterUserId;
+      const subscription =
+        settings.providerSubscriptions[settings.textGenerationModelSelection.instanceId];
+      const selection = !canUseProviderSubscription(
+        subscription,
+        billingUserId,
+        DateTime.toEpochMillis(yield* DateTime.now),
+      )
+        ? projection.thread.modelSelection
+        : settings.textGenerationModelSelection;
+      const generation = textGeneration.generateThreadTitle({
         cwd: worktreeExists ? worktreePath : project.value.workspaceRoot,
         message: context.message,
         attachments: context.attachments,
         ...(input.kind.type === "regenerate" ? { previousTitle: projection.thread.title } : {}),
         ...(inherited === undefined ? {} : { forkSource: inherited }),
         instructions: settings.threadTitleInstructions,
-        modelSelection: settings.textGenerationModelSelection,
+        modelSelection: selection,
       });
+      const result = yield* generation.pipe(
+        Effect.provideService(RequestAccount, { userId: billingUserId }),
+      );
       const generatedTitle = result.title.trim();
       return generatedTitle === "New thread" ||
         (input.kind.type === "regenerate" && generatedTitle === projection.thread.title.trim())

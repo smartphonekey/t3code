@@ -1,3 +1,6 @@
+import { ServerSettingsPatch, requiredScopesForServerSettingsUpdate } from "./settings.ts";
+import { ProviderInstanceMutation } from "./providerInstance.ts";
+import { ProviderSubscriptionMutation } from "./providerSubscription.ts";
 import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput, GitRunStackedActionInput } from "./git.ts";
 import {
@@ -15,6 +18,7 @@ import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
+  [WS_METHODS.serverUpdateSettings]: AuthSettingsWriteScope,
   [WS_METHODS.previewClose]: AuthPreviewOperateScope,
   // Stopping a server signals its processes, as closing a terminal does.
   [WS_METHODS.previewStopLocalServer]: AuthTerminalOperateScope,
@@ -76,10 +80,28 @@ export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 const decodePrepareThread = Schema.decodeUnknownSync(GitPreparePullRequestThreadInput);
 const decodeStackedAction = Schema.decodeUnknownSync(GitRunStackedActionInput);
 
+const decodeSettingsUpdate = Schema.decodeUnknownSync(
+  Schema.toType(
+    Schema.Struct({
+      patch: ServerSettingsPatch,
+      providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
+      providerSubscriptionMutation: Schema.optionalKey(ProviderSubscriptionMutation),
+    }),
+  ),
+);
+
 export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  if (method === WS_METHODS.serverUpdateSettings && input !== undefined) {
+    const payload = decodeSettingsUpdate(input);
+    return requiredScopesForServerSettingsUpdate(
+      payload.patch,
+      payload.providerInstanceMutation !== undefined ||
+        payload.providerSubscriptionMutation !== undefined,
+    );
+  }
   if (method === WS_METHODS.gitPreparePullRequestThread && input !== undefined) {
     const payload = decodePrepareThread(input);
     if (payload.mode === "worktree" && payload.threadId !== undefined)

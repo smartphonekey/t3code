@@ -22,11 +22,24 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import * as CloudflareAccessIdentity from "./CloudflareAccessIdentity.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as AuthHttp from "./http.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
+
+const layerCloudflareAccessDisabled = Layer.succeed(
+  CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing.of({
+    readConfig: () => Effect.succeed({ enabled: false, teamDomain: "", applicationAud: "" }),
+    verifyRequestIdentity: () => Effect.succeedNone,
+    recordPairing: () => Effect.void,
+    resumeBrowserSession: () => Effect.succeedNone,
+    sessionHasStoredCloudflareAccessIdentity: () => Effect.succeed(false),
+    revokeCloudflareAccessIdentityForSession: () => Effect.void,
+  }),
+);
 
 const DEV_TOKEN = "reusable-dev-auth-token-that-is-long-enough";
 class AuthTestApi extends HttpApi.make("environment").add(EnvironmentHttpApi.groups.auth) {}
@@ -45,12 +58,13 @@ const layerConfig = Layer.effect(
 ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-http-test-" })));
 
 const layerEnvironmentAuth = EnvironmentAuth.layer.pipe(
-  Layer.provideMerge(CloudflareAccessIdentity.layerTest()),
   Layer.provide(ManagedPolicy.layerTest()),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(ServerSecretStore.layer),
   Layer.provide(ServerEnvironment.layerIdentity),
+  Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerConfig),
+  Layer.provideMerge(layerCloudflareAccessDisabled),
 );
 const layerRoutes = HttpApiBuilder.layer(AuthTestApi).pipe(
   Layer.provide(AuthHttp.layer),
@@ -96,7 +110,7 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
           ] as const,
       ),
       ([environmentA, environmentB]) =>
-        Effect.tryPromise(async () => {
+        Effect.promise(async () => {
           const devResponse = await environmentA.handler(
             postJson("/api/auth/browser-session", { credential: DEV_TOKEN }),
             requestContext,
@@ -157,6 +171,39 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
         }),
       ([environmentA, environmentB]) =>
         Effect.promise(() => Promise.all([environmentA.dispose(), environmentB.dispose()])),
+    );
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+);
+
+it.effect.each(["DPoP", "dpop"])("challenges a refused %s request with DPoP", (scheme) =>
+  Effect.gen(function* () {
+    const random = yield* SecureRandom.SecureRandom;
+    const unusedSecretStore = ServerSecretStore.ServerSecretStore.of({
+      get: () => Effect.succeedNone,
+      set: () => Effect.void,
+      create: () => Effect.void,
+      getOrCreateRandom: () => Effect.die("Not used by these routes."),
+      remove: () => Effect.void,
+    });
+    const requestContext = Context.make(SecureRandom.SecureRandom, random).pipe(
+      Context.add(ServerSecretStore.ServerSecretStore, unusedSecretStore),
+    );
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => HttpRouter.toWebHandler(layerRoutes, { disableLogger: true })),
+      (environment) =>
+        Effect.promise(async () => {
+          const refused = await environment.handler(
+            postJson(
+              "/api/auth/pairing-token",
+              { scopes: ["orchestration:read"] },
+              { authorization: `${scheme} not-a-valid-token` },
+            ),
+            requestContext,
+          );
+          expect(refused.status).toBe(401);
+          expect(refused.headers.get("www-authenticate")).toBe("DPoP");
+        }),
+      (environment) => Effect.promise(() => environment.dispose()),
     );
   }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

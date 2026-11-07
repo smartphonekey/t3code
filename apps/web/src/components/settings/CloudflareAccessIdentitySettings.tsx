@@ -1,73 +1,86 @@
-import type { ServerSettings } from "@t3tools/contracts";
-import { Input } from "../ui/input";
+import { AuthAccessWriteScope } from "@t3tools/contracts";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
-import type { ScopedSettingsPatch } from "./scopedSettings";
 import { Switch } from "../ui/switch";
-import { searchableSetting } from "./settingsSearch";
-
-interface CloudflareAccessIdentitySettingsProps {
-  readonly settings: ServerSettings;
-  readonly updateSettings: (
-    patch: ScopedSettingsPatch,
-    options?: { readonly onFailed?: () => void },
-  ) => void;
-}
+import { Input } from "../ui/input";
+import { useEnvironmentSessionState } from "~/state/session";
+import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 export function CloudflareAccessIdentitySettings({
-  settings,
-  updateSettings,
-}: CloudflareAccessIdentitySettingsProps) {
-  const enabled = settings.enableCloudflareAccessIdentityPairing;
-  const pairingSetting = searchableSetting("cloudflare-access-identity-pairing");
+  environmentId,
+}: {
+  readonly environmentId: EnvironmentId;
+}) {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const session = useEnvironmentSessionState(environmentId);
+  const canWrite =
+    session.data?.authenticated === true &&
+    (session.data.permissions ?? session.data.scopes)?.includes(AuthAccessWriteScope) === true;
+
   return (
-    <SettingsSection title="Cloudflare Access">
+    <SettingsSection title="Cloudflare Access identity pairing">
       <SettingsRow
-        {...pairingSetting}
-        description="When this server sits behind Cloudflare Access, require pairing once per human Access user, then skip pairing on later browsers after the Access JWT is verified."
+        serverScoped
+        title="Cloudflare Access identity pairing"
+        settingKeys={[
+          "enableCloudflareAccessIdentityPairing",
+          "cloudflareAccessTeamDomain",
+          "cloudflareAccessApplicationAud",
+        ]}
+        description={
+          <>
+            Remember verified Cloudflare Access identities after first pair so other browsers can
+            reconnect without a new code. Requires{" "}
+            <code className="text-xs">Cf-Access-Jwt-Assertion</code>; email headers are not trusted.
+            Off by default.
+          </>
+        }
         control={
           <Switch
-            checked={enabled}
+            checked={settings.enableCloudflareAccessIdentityPairing}
+            disabled={!canWrite}
             onCheckedChange={(checked) =>
               updateSettings({ enableCloudflareAccessIdentityPairing: Boolean(checked) })
             }
+            aria-label="Cloudflare Access identity pairing"
           />
         }
-        settingKeys={["enableCloudflareAccessIdentityPairing"]}
       />
-      {enabled ? (
+      {settings.enableCloudflareAccessIdentityPairing ? (
         <>
           <SettingsRow
-            title="Team domain"
-            description="Your Zero Trust team domain, such as acme.cloudflareaccess.com."
-            settingKeys={["cloudflareAccessTeamDomain"]}
-          >
-            <Input
-              value={settings.cloudflareAccessTeamDomain}
-              onChange={(event) =>
-                updateSettings({ cloudflareAccessTeamDomain: event.currentTarget.value })
-              }
-              placeholder="acme.cloudflareaccess.com"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </SettingsRow>
+            serverScoped
+            title="Access team domain"
+            description="Your Cloudflare Access team hostname, for example myteam.cloudflareaccess.com."
+            control={
+              <Input
+                className="max-w-md"
+                value={settings.cloudflareAccessTeamDomain}
+                disabled={!canWrite}
+                onChange={(event) =>
+                  updateSettings({ cloudflareAccessTeamDomain: event.currentTarget.value })
+                }
+                placeholder="myteam.cloudflareaccess.com"
+              />
+            }
+          />
           <SettingsRow
-            title="Application audience (AUD)"
-            description="The Access application AUD tag for this T3 Code app."
-            settingKeys={["cloudflareAccessApplicationAudience"]}
-          >
-            <Input
-              value={settings.cloudflareAccessApplicationAudience}
-              onChange={(event) =>
-                updateSettings({ cloudflareAccessApplicationAudience: event.currentTarget.value })
-              }
-              placeholder="access application audience"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </SettingsRow>
+            serverScoped
+            title="Application AUD"
+            description="The audience tag of the Cloudflare Access application in front of this server."
+            control={
+              <Input
+                className="max-w-md"
+                value={settings.cloudflareAccessApplicationAud}
+                disabled={!canWrite}
+                onChange={(event) =>
+                  updateSettings({ cloudflareAccessApplicationAud: event.currentTarget.value })
+                }
+                placeholder="Access application AUD"
+              />
+            }
+          />
         </>
       ) : null}
     </SettingsSection>

@@ -1,3 +1,5 @@
+import { RequestAccount } from "./RequestAccount.ts";
+import { EnvironmentAuthorizationError } from "@t3tools/contracts";
 import {
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
@@ -190,6 +192,12 @@ describe("settings mutation authorization", () => {
         yield* client[WS_METHODS.serverUpdateSettings]({
           patch: { defaultRuntimeMode: "full-access" },
           providerInstanceMutation,
+        }).pipe(Effect.flip),
+      ).toMatchObject({ requiredPermission: AuthSettingsWriteScope });
+      // Removing a secret provider clears settings fields that read from it.
+      expect(
+        yield* client[WS_METHODS.serverUpdateSettings]({
+          patch: { secretProviders: { [SecretProviderId.make("personal")]: null } },
         }).pipe(Effect.flip),
       ).toMatchObject({ requiredPermission: AuthSettingsWriteScope });
       expect(handled).toBe(2);
@@ -399,5 +407,60 @@ it.effect("denies manual cleanup before the handler without settings permission"
       requiredPermission: AuthSettingsWriteScope,
     });
     expect(handled).toBe(false);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("binds verified request identities and rejects invalid account proofs", () =>
+  Effect.gen(function* () {
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (
+          tag,
+        ): tag is Exclude<
+          keyof typeof RPC_REQUIRED_SCOPES,
+          typeof WS_METHODS.serverUpdateSettings
+        > => tag !== WS_METHODS.serverUpdateSettings,
+      ),
+    );
+    const client = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          group.toLayerHandler(WS_METHODS.serverUpdateSettings, () =>
+            Effect.map(RequestAccount, (account) => ({
+              ...DEFAULT_SERVER_SETTINGS,
+              branchNamePrefix: account?.userId ?? "anonymous",
+            })),
+          ),
+          RpcAuthorization.layer(
+            [AuthSettingsWriteScope, AuthProvidersManageScope],
+            undefined,
+            (token) =>
+              token === "signed-alice"
+                ? Effect.succeed("alice")
+                : Effect.fail(
+                    new EnvironmentAuthorizationError({
+                      message: "Invalid account proof",
+                      requiredScope: AuthProvidersManageScope,
+                    }),
+                  ),
+          ),
+        ),
+      ),
+    );
+    expect((yield* client[WS_METHODS.serverUpdateSettings]({ patch: {} })).branchNamePrefix).toBe(
+      "anonymous",
+    );
+    expect(
+      (yield* client[WS_METHODS.serverUpdateSettings](
+        { patch: {} },
+        { headers: { "x-t3-account-token": "signed-alice" } },
+      )).branchNamePrefix,
+    ).toBe("alice");
+    expect(
+      (yield* client[WS_METHODS.serverUpdateSettings](
+        { patch: {} },
+        { headers: { "x-t3-account-token": "forged-bob" } },
+      ).pipe(Effect.flip))._tag,
+    ).toBe("EnvironmentAuthorizationError");
   }).pipe(Effect.scoped),
 );

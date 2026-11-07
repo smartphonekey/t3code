@@ -521,6 +521,29 @@ describe("resolveComposerProviderSelection", () => {
     });
   }
 
+  it("prefers the person's account over the project default while keeping explicit choices", () => {
+    const shared = entry("codex", "codex_shared");
+    const personal = { ...entry("codex", "codex_personal"), ownerUserId: "alice" };
+    const input = {
+      entries: [shared, personal],
+      lockedProvider: null,
+      lockedInstanceId: null,
+      currentUserId: "alice",
+    };
+    expect(
+      resolveComposerProviderSelection({
+        ...input,
+        candidateInstanceIds: [null, null, null, shared.instanceId],
+      }).selectedProviderEntry?.instanceId,
+    ).toBe(personal.instanceId);
+    expect(
+      resolveComposerProviderSelection({
+        ...input,
+        candidateInstanceIds: [shared.instanceId, null, null, shared.instanceId],
+      }).selectedProviderEntry?.instanceId,
+    ).toBe(shared.instanceId);
+  });
+
   it.each([
     ["claudeAgent", "claude_work"],
     ["codex", "codex_work"],
@@ -1077,6 +1100,7 @@ describe("planComposerTurn", () => {
     keepFullHistory: false,
     phase: "ready" as const,
     dispatchMode: "auto" as const,
+    freshContext: false,
   };
 
   it("prepares a worktree from the selected branch on a new thread", () => {
@@ -1125,6 +1149,19 @@ describe("planComposerTurn", () => {
     expect(planComposerTurn({ ...running, dispatchMode: "steer" })).toMatchObject({
       shouldQueueBehindActiveRun: false,
       baseBranchForWorktree: null,
+    });
+    // A fresh session cannot join the running turn, and a stale one is not compacted first.
+    expect(
+      planComposerTurn({
+        ...running,
+        dispatchMode: "steer",
+        freshContext: true,
+        resumeCompactionTokens: 120_000,
+      }),
+    ).toMatchObject({
+      compactBeforeSend: false,
+      turnDispatchMode: "queue",
+      shouldQueueBehindActiveRun: true,
     });
   });
 });

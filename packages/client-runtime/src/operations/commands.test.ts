@@ -32,6 +32,7 @@ import {
   type PreparedConnection,
 } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import { CloudSession } from "../platform/capabilities.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
@@ -242,9 +243,16 @@ describe("V2 environment commands", () => {
             createdAt: "2026-06-20T00:00:00.000Z",
           },
         },
-      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+      }).pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.provideService(CloudSession, {
+          identity: Effect.succeedSome({ accountId: "account:alice" }),
+          clerkToken: Effect.succeed("unused"),
+        }),
+      );
 
       expect(launches[0]).toMatchObject({
+        ownerUserId: "account:alice",
         threadId: v2ThreadId,
         title: "Continue here",
         generateTitle: true,

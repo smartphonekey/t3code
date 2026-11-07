@@ -39,8 +39,6 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
-import * as CloudflareAccessIdentity from "./CloudflareAccessIdentity.ts";
-import type { CloudflareAccessVerifiedIdentity } from "./cloudflareAccessJwt.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -51,6 +49,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import { requestUrl } from "../requestUrl.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
 
 const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
@@ -337,6 +336,7 @@ export class ServerAuthCloudMintJwtSigningError extends Schema.TaggedError<Serve
 }
 
 export const ServerAuthInternalError = Schema.Union([
+  CloudflareAccessIdentityPairing.CloudflareAccessPairingError,
   ServerAuthBootstrapCredentialValidationError,
   ServerAuthSessionCredentialValidationError,
   ServerAuthAuthenticatedSessionIssueError,
@@ -459,10 +459,16 @@ export class EnvironmentAuth extends Context.Service<
     readonly getSessionState: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthSessionState, ServerAuthInternalError>;
+    readonly establishBrowserSessionFromCloudflareAccessIfGranted: (
+      request: HttpServerRequest.HttpServerRequest,
+      requestMetadata: AuthClientMetadata,
+    ) => Effect.Effect<
+      Option.Option<CloudflareAccessIdentityPairing.CloudflareAccessBrowserSessionBootstrap>,
+      ServerAuthInternalError
+    >;
     readonly createBrowserSession: (
       credential: string,
       requestMetadata: AuthClientMetadata,
-      request?: HttpServerRequest.HttpServerRequest,
       previousSessionToken?: string,
     ) => Effect.Effect<
       {
@@ -472,16 +478,6 @@ export class EnvironmentAuth extends Context.Service<
         readonly expireNormalCookie?: boolean;
       },
       ServerAuthInvalidCredentialError | ServerAuthInternalError
-    >;
-    readonly establishBrowserSessionFromCloudflareAccessIfGranted: (
-      request: HttpServerRequest.HttpServerRequest,
-      requestMetadata: AuthClientMetadata,
-    ) => Effect.Effect<
-      Option.Option<{
-        readonly response: AuthBrowserSessionResult;
-        readonly sessionToken: string;
-      }>,
-      ServerAuthInternalError
     >;
     readonly exchangeBootstrapCredentialForAccessToken: (
       credential: string,
@@ -538,6 +534,7 @@ export class EnvironmentAuth extends Context.Service<
     readonly revokeClientSession: (
       currentSessionId: AuthSessionId,
       targetSessionId: AuthSessionId,
+      revokeCloudflareAccessIdentity?: boolean,
     ) => Effect.Effect<boolean, ServerAuthForbiddenOperationError | ServerAuthInternalError>;
     readonly revokeOtherClientSessions: (
       currentSessionId: AuthSessionId,
@@ -653,7 +650,7 @@ export function parseBearerToken(request: HttpServerRequest.HttpServerRequest): 
 
 function parseDpopToken(request: HttpServerRequest.HttpServerRequest): string | null {
   const header = request.headers["authorization"];
-  if (typeof header !== "string" || !header.startsWith(DPOP_AUTHORIZATION_PREFIX)) {
+  if (typeof header !== "string" || !/^DPoP /i.test(header)) {
     return null;
   }
   const token = header.slice(DPOP_AUTHORIZATION_PREFIX.length).trim();
@@ -725,15 +722,15 @@ function isBrowserOriginAllowed(
 export const make = Effect.gen(function* () {
   const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
   const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-  const cloudflareAccessIdentityOption = yield* Effect.serviceOption(
-    CloudflareAccessIdentity.CloudflareAccessIdentity,
-  );
   const sessions = yield* SessionStore.SessionStore;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const digest = yield* Digest.Digest;
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
+  const cloudflareAccess = yield* Effect.serviceOption(
+    CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  );
   const devAuth = resolveReusableDevAuth(config);
 
   const authenticateToken = (
@@ -787,48 +784,12 @@ export const make = Effect.gen(function* () {
     ...config.devAllowedOrigins,
   ]);
 
-  const issueBrowserSessionFromCloudflareAccessGrant = Effect.fn(
-    "EnvironmentAuth.issueBrowserSessionFromCloudflareAccessGrant",
-  )(function* (request: HttpServerRequest.HttpServerRequest, requestMetadata: AuthClientMetadata) {
-    const grantOption = Option.isNone(cloudflareAccessIdentityOption)
-      ? Option.none<CloudflareAccessIdentity.CloudflareAccessIdentityGrant>()
-      : yield* cloudflareAccessIdentityOption.value
-          .findGrantForRequest(request)
-          .pipe(
-            Effect.orElseSucceed(() =>
-              Option.none<CloudflareAccessIdentity.CloudflareAccessIdentityGrant>(),
-            ),
-          );
-    if (Option.isNone(grantOption)) {
-      return Option.none();
-    }
-    const grant = grantOption.value;
-    if (
-      !isBrowserOriginAllowed(request, trustedBrowserOrigins) &&
-      request.headers.origin !== undefined
-    ) {
-      return Option.none();
-    }
-    const session = yield* sessions
-      .issue({
-        method: "browser-session-cookie",
-        subject: grant.sessionSubject,
-        scopes: grant.scopes,
-        client: {
-          ...requestMetadata,
-          ...(grant.identity.email ? { label: grant.identity.email } : {}),
-        },
-      })
-      .pipe(Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })));
-    return Option.some({
-      response: {
-        authenticated: true,
-        ...authScopeResponse(session.scopes),
-        sessionMethod: session.method,
-        expiresAt: DateTime.toUtc(session.expiresAt),
-      } satisfies AuthBrowserSessionResult,
-      sessionToken: session.token,
-    });
+  const establishBrowserSessionFromCloudflareAccessIfGranted = Effect.fn(
+    "EnvironmentAuth.establishBrowserSessionFromCloudflareAccessIfGranted",
+  )(function* (request: HttpServerRequest.HttpServerRequest, metadata: AuthClientMetadata) {
+    if (Option.isNone(cloudflareAccess) || !isBrowserOriginAllowed(request, trustedBrowserOrigins))
+      return Option.none<CloudflareAccessIdentityPairing.CloudflareAccessBrowserSessionBootstrap>();
+    return yield* cloudflareAccess.value.resumeBrowserSession(request, metadata);
   });
 
   const authenticateRequest = (
@@ -906,7 +867,7 @@ export const make = Effect.gen(function* () {
 
   const createBrowserSession: EnvironmentAuth["Service"]["createBrowserSession"] = Effect.fn(
     "EnvironmentAuth.createBrowserSession",
-  )(function* (credential, requestMetadata, request, previousSessionToken) {
+  )(function* (credential, requestMetadata, previousSessionToken) {
     if (devAuth?.matches(credential)) {
       return yield* sessions.verify(credential).pipe(
         mapSessionVerificationErrors,
@@ -955,21 +916,6 @@ export const make = Effect.gen(function* () {
         },
       })
       .pipe(Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })));
-    if (request !== undefined && Option.isSome(cloudflareAccessIdentityOption)) {
-      const cloudflareAccessIdentity = cloudflareAccessIdentityOption.value;
-      const identityOption = yield* cloudflareAccessIdentity
-        .verifyRequestIdentity(request)
-        .pipe(Effect.orElseSucceed(() => Option.none<CloudflareAccessVerifiedIdentity>()));
-      if (Option.isSome(identityOption)) {
-        yield* cloudflareAccessIdentity
-          .recordGrantAfterPairing({
-            identity: identityOption.value,
-            scopes: grant.scopes,
-            sessionSubject: grant.subject,
-          })
-          .pipe(Effect.ignore);
-      }
-    }
     return {
       response: {
         authenticated: true,
@@ -980,13 +926,6 @@ export const make = Effect.gen(function* () {
       sessionToken: session.token,
     } satisfies BootstrapExchangeResult;
   });
-
-  const establishBrowserSessionFromCloudflareAccessIfGranted: EnvironmentAuth["Service"]["establishBrowserSessionFromCloudflareAccessIfGranted"] =
-    (request, requestMetadata) =>
-      issueBrowserSessionFromCloudflareAccessGrant(request, requestMetadata).pipe(
-        Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })),
-        Effect.withSpan("EnvironmentAuth.establishBrowserSessionFromCloudflareAccessIfGranted"),
-      );
 
   type ResolvedBootstrapGrant = Pick<
     PairingGrantStore.BootstrapGrant,
@@ -1254,21 +1193,35 @@ export const make = Effect.gen(function* () {
 
   const listClientSessions: EnvironmentAuth["Service"]["listClientSessions"] = (currentSessionId) =>
     listSessions().pipe(
-      Effect.map((clientSessions) =>
-        clientSessions.map((clientSession): AuthClientSession => ({
-          ...clientSession,
-          ...authScopeResponse(clientSession.scopes),
-          current: clientSession.sessionId === currentSessionId,
-        })),
+      Effect.flatMap((clientSessions) =>
+        Effect.forEach(clientSessions, (clientSession) =>
+          (Option.isSome(cloudflareAccess)
+            ? cloudflareAccess.value.sessionHasStoredCloudflareAccessIdentity(
+                clientSession.sessionId,
+              )
+            : Effect.succeed(false)
+          ).pipe(
+            Effect.map((paired) => ({
+              ...clientSession,
+              ...authScopeResponse(clientSession.scopes),
+              current: clientSession.sessionId === currentSessionId,
+              ...(paired ? { cloudflareAccessIdentityPaired: true as const } : {}),
+            })),
+          ),
+        ),
       ),
       Effect.withSpan("EnvironmentAuth.listClientSessions"),
     );
 
   const revokeClientSession: EnvironmentAuth["Service"]["revokeClientSession"] = Effect.fn(
     "EnvironmentAuth.revokeClientSession",
-  )(function* (currentSessionId, targetSessionId) {
+  )(function* (currentSessionId, targetSessionId, revokeCloudflareAccessIdentity) {
     if (currentSessionId === targetSessionId) {
       return yield* new ServerAuthForbiddenOperationError({});
+    }
+    if (revokeCloudflareAccessIdentity === true && Option.isSome(cloudflareAccess)) {
+      yield* cloudflareAccess.value.revokeCloudflareAccessIdentityForSession(targetSessionId);
+      return true;
     }
     return yield* revokeSession(targetSessionId);
   });
@@ -1468,8 +1421,8 @@ export const make = Effect.gen(function* () {
       return Effect.succeed(descriptor);
     }),
     getSessionState,
-    createBrowserSession,
     establishBrowserSessionFromCloudflareAccessIfGranted,
+    createBrowserSession,
     exchangeBootstrapCredentialForAccessToken,
     createPairingLink,
     issuePairingCredential,
