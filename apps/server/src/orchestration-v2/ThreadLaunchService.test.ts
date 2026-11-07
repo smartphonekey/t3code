@@ -750,7 +750,6 @@ it.effect("arms durable title generation after accepting the first message", () 
           thread: "thread:launch:title-generation",
           message: "Generate my title",
         }),
-        ownerUserId: "account:alice",
         title: "Generate my title",
         generateTitle: true,
       };
