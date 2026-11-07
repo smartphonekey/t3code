@@ -294,6 +294,8 @@ export const AuthClientSession = Schema.Struct({
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtc),
   connected: Schema.Boolean,
   current: Schema.Boolean,
+  /** A stored Cloudflare Access identity is paired for this browser session. */
+  cloudflareAccessIdentityPaired: Schema.optionalKey(Schema.Boolean),
 });
 export type AuthClientSession = typeof AuthClientSession.Type;
 
@@ -381,6 +383,11 @@ export type AuthRevokePairingLinkInput = typeof AuthRevokePairingLinkInput.Type;
 
 export const AuthRevokeClientSessionInput = Schema.Struct({
   sessionId: AuthSessionId,
+  /**
+   * When true, also delete the stored Cloudflare Access identity and every browser session
+   * bound to it. When false or omitted, revoke only this session.
+   */
+  revokeCloudflareAccessIdentity: Schema.optionalKey(Schema.Boolean),
 });
 export type AuthRevokeClientSessionInput = typeof AuthRevokeClientSessionInput.Type;
 
