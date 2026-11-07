@@ -38,10 +38,10 @@ const { privatePem, kid, jwks } = (() => {
   };
 })();
 
-const makeAccessRequest = (token: string | null) =>
+const makeAccessRequest = (token: string | null, extraHeaders: Record<string, string> = {}) =>
   ({
     cookies: {},
-    headers: token ? { [CF_ACCESS_JWT_HEADER]: token } : {},
+    headers: token ? { ...extraHeaders, [CF_ACCESS_JWT_HEADER]: token } : extraHeaders,
   }) as Parameters<
     CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing["Service"]["resumeBrowserSession"]
   >[0];
@@ -111,6 +111,13 @@ it.layer(
         deviceType: "desktop",
       });
       expect(Option.isNone(badResume)).toBe(true);
+      const forgedEmail = yield* pairing.verifyRequestIdentity(
+        makeAccessRequest(null, {
+          "cf-access-authenticated-user-email": "forged@example.com",
+        }),
+      );
+      expect(Option.isNone(forgedEmail)).toBe(true);
+
       const serviceResume = yield* pairing.resumeBrowserSession(makeAccessRequest(serviceToken), {
         deviceType: "desktop",
       });
