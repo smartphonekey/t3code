@@ -1241,6 +1241,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     cloudOnly: true,
   },
   {
+    id: "cloudflare-access-identity-pairing",
+    title: "Cloudflare Access identity pairing",
+    to: "/settings/access",
+    searchTerms: ["cloudflare access jwt pairing sso identity browser"],
+  },
+  {
     id: "connections-environment",
     title: "This machine",
     to: "/settings/access",

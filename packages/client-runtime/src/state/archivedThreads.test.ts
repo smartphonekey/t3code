@@ -5,6 +5,9 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import { managedRelaySessionAtom } from "../relay/managedRelayState.ts";
+import { threadOwnershipScopeAtom } from "./threadOwnership.ts";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -105,4 +108,42 @@ describe("archived delegated tasks follow their parent on another machine", () =
     expect(taskSnapshot?.snapshot.threads.length).toBe(tasks);
     registry.dispose();
   });
+});
+
+it("filters archived ownership while preserving access through All chats", () => {
+  const environmentId = EnvironmentId.make("archive:ownership");
+  const snapshotsAtom = createArchivedThreadSnapshotsAtomFamily({
+    getSnapshotAtom: () =>
+      Atom.make(
+        AsyncResult.success({
+          schemaVersion: 1 as const,
+          snapshotSequence: 1,
+          projects: [],
+          threads: ["alice", "bob", undefined].map((ownerUserId, index) => ({
+            ...v2ThreadShell,
+            id: ThreadId.make(`archive:${index}`),
+            ...(ownerUserId === undefined ? {} : { ownerUserId }),
+          })),
+        }),
+      ),
+    hiddenThreadTagsAtom: () => Atom.make(null),
+    hiddenThreadKeysAtom: Atom.make((): ReadonlySet<string> => new Set()),
+    liveThreadRefsAtom: Atom.make((): ReadonlyArray<ScopedThreadRef> => []),
+    anyEnvironmentHidingAtom: Atom.make(false),
+    labelPrefix: "test:archive-ownership",
+  });
+  const registry = AtomRegistry.make();
+  registry.set(managedRelaySessionAtom, {
+    accountId: "alice",
+    readClerkToken: () => Effect.succeed(null),
+  });
+  const atom = snapshotsAtom(makeArchivedThreadsEnvironmentKey([environmentId]));
+  const dispose = registry.mount(atom);
+  expect(registry.get(atom).snapshots[0]?.snapshot.threads.map((thread) => thread.id)).toEqual([
+    "archive:0",
+  ]);
+  registry.set(threadOwnershipScopeAtom("alice"), "all");
+  expect(registry.get(atom).snapshots[0]?.snapshot.threads).toHaveLength(3);
+  dispose();
+  registry.dispose();
 });

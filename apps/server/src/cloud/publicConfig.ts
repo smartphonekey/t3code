@@ -209,3 +209,8 @@ export const hasCloudPublicConfig = Boolean(
   (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
   (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
 );
+
+export const cloudAccountPublishableKey = makePublicValueConfig(
+  "T3CODE_CLERK_PUBLISHABLE_KEY",
+  buildTimeClerkPublishableKey,
+);

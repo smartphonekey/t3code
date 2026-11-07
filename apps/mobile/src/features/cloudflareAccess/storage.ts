@@ -5,7 +5,11 @@ import * as Schema from "effect/Schema";
 
 import * as MobileSecureStorage from "../../persistence/mobile-secure-storage";
 
-const storageKey = (origin: string) => `cloudflare-access:${origin}`;
+const storageKey = (origin: string) =>
+  `cloudflare-access.${origin
+    .split("")
+    .map((character) => character.charCodeAt(0).toString(16).padStart(4, "0"))
+    .join("")}`;
 
 const sessionCodec = Schema.toCodecJson(CloudflareAccessSession);
 const decodeSession = Schema.decodeUnknownEffect(sessionCodec);
@@ -20,8 +24,7 @@ export const loadCloudflareAccessSession = Effect.fn("mobile.cloudflareAccess.lo
   if (raw === null) {
     return Option.none();
   }
-  const parsed = yield* parseRaw(raw);
-  return yield* decodeSession(parsed).pipe(Effect.option);
+  return yield* parseRaw(raw).pipe(Effect.flatMap(decodeSession), Effect.option);
 });
 
 export const saveCloudflareAccessSession = Effect.fn("mobile.cloudflareAccess.save")(function* (

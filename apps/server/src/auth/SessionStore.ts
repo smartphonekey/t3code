@@ -384,6 +384,7 @@ export class SessionStore extends Context.Service<
       readonly peerLink?: boolean;
       readonly replaceActiveForSubjectAndMethod?: boolean;
       readonly replaceSessionId?: AuthSessionId;
+      readonly cloudflareAccessIdentityKey?: string;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
     readonly verify: (token: string) => Effect.Effect<VerifiedSession, SessionCredentialError>;
     readonly issueWebSocketToken: (
@@ -695,6 +696,9 @@ const make = Effect.gen(function* () {
           os: client.os ?? null,
           browser: client.browser ?? null,
         },
+        ...(input?.cloudflareAccessIdentityKey
+          ? { accessIdentityKey: input.cloudflareAccessIdentityKey }
+          : {}),
         issuedAt,
         expiresAt,
       } satisfies AuthSessions.CreateAuthSessionInput;

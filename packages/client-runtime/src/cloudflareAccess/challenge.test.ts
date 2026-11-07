@@ -12,11 +12,15 @@ describe("cloudflareAccess challenge", () => {
       isCloudflareAccessLoginUrl("https://team.cloudflareaccess.com/cdn-cgi/access/login"),
     ).toBe(true);
     expect(isCloudflareAccessLoginUrl("https://t3code.example.test/pair")).toBe(false);
+    expect(isCloudflareAccessLoginUrl("https://cloudflareaccess.com.evil.test")).toBe(false);
+    expect(isCloudflareAccessLoginUrl("invalid cloudflareaccess.com text")).toBe(false);
   });
 
-  it("detects 401 challenges", () => {
-    const response = new Response(null, { status: 401 });
-    expect(isCloudflareAccessChallengeResponse(response, "https://t3.example.test/foo")).toBe(true);
+  it("keeps ordinary T3 authentication failures out of the Cloudflare login flow", () => {
+    const response = Response.json({ error: "pairing_required" }, { status: 401 });
+    expect(isCloudflareAccessChallengeResponse(response, "https://t3.example.test/foo")).toBe(
+      false,
+    );
   });
 
   it("detects redirect challenges", () => {

@@ -70,6 +70,9 @@ export function createEnvironmentPresentationAtoms<E>(input: {
     environmentId: EnvironmentId,
   ) => Atom.Atom<AsyncResult.AsyncResult<SupervisorConnectionState, E>>;
   readonly serverConfigValueAtom: (environmentId: EnvironmentId) => Atom.Atom<ServerConfig | null>;
+  readonly providersValueAtom?: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<ReadonlyArray<ServerProvider> | null>;
 }) {
   const presentationAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) => {
@@ -144,7 +147,10 @@ export function createEnvironmentPresentationAtoms<E>(input: {
   const providersByEnvironmentAtom = Atom.make((get) => {
     const next = new Map<EnvironmentId, ReadonlyArray<ServerProvider>>();
     for (const environmentId of get(input.catalogValueAtom).entries.keys()) {
-      const providers = get(input.serverConfigValueAtom(environmentId))?.providers;
+      const providers =
+        input.providersValueAtom === undefined
+          ? get(input.serverConfigValueAtom(environmentId))?.providers
+          : (get(input.providersValueAtom(environmentId)) ?? undefined);
       if (providers !== undefined) {
         next.set(environmentId, providers);
       }

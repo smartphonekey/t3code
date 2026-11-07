@@ -1,3 +1,4 @@
+import { CloudSession } from "../platform/capabilities.ts";
 import {
   EnvironmentAuthorizationError,
   clientRpcRequiredScopes,
@@ -199,13 +200,30 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
   const observer = yield* EnvironmentRpcRequestObserver;
   const method = session.client[tag] as (
     input: EnvironmentRpcInput<TTag>,
+    options?: { readonly headers?: Readonly<Record<string, string>> },
   ) => Effect.Effect<EnvironmentRpcSuccess<TTag>, EnvironmentRpcFailure<TTag>>;
+  const cloud = yield* Effect.serviceOption(CloudSession);
+  const identity = Option.isSome(cloud) ? yield* cloud.value.identity : Option.none();
+  const token =
+    Option.isSome(identity) && Option.isSome(cloud)
+      ? yield* cloud.value.clerkToken.pipe(
+          Effect.mapError(
+            () =>
+              new EnvironmentAuthorizationError({
+                message: "Your T3 Connect session is unavailable. Sign in again.",
+                requiredScope: "orchestration:operate",
+              }),
+          ),
+        )
+      : null;
   const completeObservation = yield* observer.observe({
     environmentId: supervisor.target.environmentId,
     environmentLabel: supervisor.target.label,
     method: tag,
   });
-  return yield* method(input).pipe(Effect.ensuring(completeObservation));
+  return yield* (
+    token === null ? method(input) : method(input, { headers: { "x-t3-account-token": token } })
+  ).pipe(Effect.ensuring(completeObservation));
 });
 
 export function runStreamGuarded<TTag extends EnvironmentStreamCommandRpcTag>(

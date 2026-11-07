@@ -1,7 +1,7 @@
 import { CloudflareAccessSession } from "@t3tools/client-runtime/cloudflare-access";
 import CookieManager from "@react-native-cookies/cookies";
-import { useCallback, useMemo, useState } from "react";
-import { Modal, Pressable, View } from "react-native";
+import { useCallback, useMemo, useRef } from "react";
+import { Modal, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
@@ -16,18 +16,19 @@ export function CloudflareAccessLoginSheet(props: {
   readonly onCancel: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [extracting, setExtracting] = useState(false);
+  const extracting = useRef<CloudflareAccessLoginRequest | null>(null);
   const pollScript = useMemo(
     () => (props.request === null ? undefined : wellKnownPollScript(props.request.origin)),
     [props.request],
   );
 
   const extractSession = useCallback(() => {
-    if (props.request === null || extracting) {
+    if (props.request === null || extracting.current === props.request) {
       return;
     }
-    setExtracting(true);
-    void CookieManager.get(props.request.origin)
+    const request = props.request;
+    extracting.current = request;
+    void CookieManager.get(request.origin, Platform.OS === "ios")
       .then((cookies) => {
         const cfAuthorization =
           cookies.CF_Authorization?.value ??
@@ -50,9 +51,9 @@ export function CloudflareAccessLoginSheet(props: {
         props.onCancel();
       })
       .finally(() => {
-        setExtracting(false);
+        if (extracting.current === request) extracting.current = null;
       });
-  }, [extracting, props]);
+  }, [props]);
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {

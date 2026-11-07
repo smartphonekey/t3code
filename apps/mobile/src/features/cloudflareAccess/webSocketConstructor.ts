@@ -1,45 +1,36 @@
 import { cloudflareAccessRequestHeaders } from "@t3tools/client-runtime/cloudflare-access";
-import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Socket from "effect/socket/Socket";
 
 import { peekCloudflareAccessSession } from "./sessionCache";
 
-function withAccessHeaders(
-  options: Socket.WebSocketConstructorOptions | undefined,
-  headerRecord: Record<string, string>,
-): Socket.WebSocketConstructorOptions {
-  if (options === undefined || typeof options === "string" || Array.isArray(options)) {
-    return { headers: headerRecord };
+export const layer = Layer.succeed(Socket.WebSocketConstructor, (url, options) => {
+  const nativeOptions =
+    typeof options === "string" || Array.isArray(options) ? { protocols: options } : options;
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(nativeOptions?.headers ?? {}))
+    headers[name.toLowerCase()] = value;
+  let origin: string | undefined;
+  try {
+    const target = new URL(url);
+    if (target.protocol === "wss:") target.protocol = "https:";
+    else if (target.protocol === "ws:") target.protocol = "http:";
+    origin = target.origin;
+  } catch {
+    origin = undefined;
   }
-  return { ...options, headers: { ...options.headers, ...headerRecord } };
-}
-
-export const layer = Layer.effect(
-  Socket.WebSocketConstructor,
-  Effect.gen(function* () {
-    const base = yield* Socket.WebSocketConstructor;
-    return (url, options) => {
-      let origin: string;
-      try {
-        origin = new URL(url).origin;
-      } catch {
-        return base(url, options);
-      }
-      const session = peekCloudflareAccessSession(origin);
-      if (session === undefined) {
-        return base(url, options);
-      }
-      const accessHeaders = cloudflareAccessRequestHeaders(session);
-      const headerRecord: Record<string, string> = {};
-      if (accessHeaders.Cookie !== undefined) {
-        headerRecord.cookie = accessHeaders.Cookie;
-      }
-      const jwt = accessHeaders["cf-access-jwt-assertion"];
-      if (jwt !== undefined) {
-        headerRecord["cf-access-jwt-assertion"] = jwt;
-      }
-      return base(url, withAccessHeaders(options, headerRecord));
-    };
-  }),
-).pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal));
+  const session = origin === undefined ? undefined : peekCloudflareAccessSession(origin);
+  if (session !== undefined) {
+    for (const [name, value] of Object.entries(cloudflareAccessRequestHeaders(session))) {
+      const key = name.toLowerCase();
+      headers[key] = key === "cookie" && headers[key] ? `${headers[key]}; ${value}` : value;
+    }
+  }
+  // React Native accepts handshake headers in its third constructor argument.
+  const NativeWebSocket: new (
+    url: string,
+    protocols?: string | string[],
+    options?: { headers: Record<string, string> },
+  ) => Socket.WebSocketLike = WebSocket;
+  return new NativeWebSocket(url, nativeOptions?.protocols, { headers });
+});

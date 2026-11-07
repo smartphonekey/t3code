@@ -239,6 +239,8 @@ export function scheduledTaskThreadMode(
 }
 
 export const ScheduledTask = Schema.Struct({
+  /** Verified creator identity; assigned by the server, never accepted from upsert input. */
+  billingUserId: Schema.optional(Schema.NullOr(Schema.String)),
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,

@@ -234,10 +234,10 @@ function AppContent() {
     <>
       <SplashScreenCoordinator />
       <SubscriptionUsageCoordinator />
-      <CloudflareAccessLoginCoordinator />
       <GestureHandlerRootView className="flex-1">
         <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
+            <CloudflareAccessLoginCoordinator />
             <StatusBar barStyle={themeAppearance === "dark" ? "light-content" : "dark-content"} />
             {/* native-stack needs the theme's dark flag to select dark native headers. */}
             <GlobalVoiceInputControl>

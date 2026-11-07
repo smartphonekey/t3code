@@ -44,6 +44,7 @@ import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
+import { CloudflareAccessIdentitySettings } from "./CloudflareAccessIdentitySettings";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { Input } from "../ui/input";
 import {
@@ -333,6 +334,8 @@ function ConnectionsSettingsContent({
   const [revokingDesktopClientSessionId, setRevokingDesktopClientSessionId] = useState<
     string | null
   >(null);
+  const [pendingCloudflareAccessRevoke, setPendingCloudflareAccessRevoke] =
+    useState<ServerClientSessionRecord | null>(null);
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const [routeTarget, setRouteTarget] = useState<EnvironmentPresentation | null>(null);
@@ -597,6 +600,7 @@ function ConnectionsSettingsContent({
 
   const handleRevokeDesktopClientSession = async (
     sessionId: ServerClientSessionRecord["sessionId"],
+    revokeCloudflareAccessIdentity = false,
   ) => {
     if (
       accessEnvironmentId === null ||
@@ -605,7 +609,13 @@ function ConnectionsSettingsContent({
       return;
     setRevokingDesktopClientSessionId(sessionId);
     setDesktopAccessManagementMutationError(null);
-    const result = await revokeClient({ environmentId: accessEnvironmentId, input: { sessionId } });
+    const result = await revokeClient({
+      environmentId: accessEnvironmentId,
+      input: {
+        sessionId,
+        ...(revokeCloudflareAccessIdentity ? { revokeCloudflareAccessIdentity: true } : {}),
+      },
+    });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       const message = error instanceof Error ? error.message : "Failed to revoke client access.";
@@ -619,6 +629,14 @@ function ConnectionsSettingsContent({
       );
     }
     setRevokingDesktopClientSessionId(null);
+  };
+
+  const requestRevokeDesktopClientSession = (clientSession: ServerClientSessionRecord) => {
+    if (clientSession.cloudflareAccessIdentityPaired) {
+      setPendingCloudflareAccessRevoke(clientSession);
+      return;
+    }
+    void handleRevokeDesktopClientSession(clientSession.sessionId);
   };
 
   const handleRevokeOtherDesktopClients = async () => {
@@ -1050,7 +1068,7 @@ function ConnectionsSettingsContent({
       revokingPairingLinkId={revokingDesktopPairingLinkId}
       revokingClientSessionId={revokingDesktopClientSessionId}
       onRevokePairingLink={handleRevokeDesktopPairingLink}
-      onRevokeClientSession={handleRevokeDesktopClientSession}
+      onRevokeClientSession={requestRevokeDesktopClientSession}
       canRevoke={canWriteAccess}
     />
   );
@@ -1261,6 +1279,9 @@ function ConnectionsSettingsContent({
             ) : null}
           </SettingsSection>
 
+          {canWriteAccess && accessEnvironmentId !== null ? (
+            <CloudflareAccessIdentitySettings environmentId={accessEnvironmentId} />
+          ) : null}
           {canReadAccess || canWriteAccess ? (
             <FoldedSettingsSection
               id="authorized-clients"
@@ -1309,6 +1330,57 @@ function ConnectionsSettingsContent({
               </ScrollArea>
             </FoldedSettingsSection>
           ) : null}
+          <AlertDialog
+            open={pendingCloudflareAccessRevoke !== null}
+            onOpenChange={(open) => {
+              if (!open && pendingCloudflareAccessRevoke !== null) {
+                setPendingCloudflareAccessRevoke(null);
+              }
+            }}
+          >
+            <AlertDialogPopup>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Revoke Cloudflare Access identity?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This client was paired through Cloudflare Access. Revoke only this browser, or
+                  remove the stored Access identity so every browser they used must pair again
+                  before reconnecting.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogClose
+                  render={<Button variant="outline" />}
+                  disabled={revokingDesktopClientSessionId !== null}
+                >
+                  Cancel
+                </AlertDialogClose>
+                <Button
+                  variant="outline"
+                  disabled={revokingDesktopClientSessionId !== null}
+                  onClick={() => {
+                    const target = pendingCloudflareAccessRevoke;
+                    if (!target) return;
+                    setPendingCloudflareAccessRevoke(null);
+                    void handleRevokeDesktopClientSession(target.sessionId);
+                  }}
+                >
+                  This browser only
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={revokingDesktopClientSessionId !== null}
+                  onClick={() => {
+                    const target = pendingCloudflareAccessRevoke;
+                    if (!target) return;
+                    setPendingCloudflareAccessRevoke(null);
+                    void handleRevokeDesktopClientSession(target.sessionId, true);
+                  }}
+                >
+                  All browsers for this person
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogPopup>
+          </AlertDialog>
           <AlertDialog
             open={pendingDesktopServerExposureMode !== null && canManageLocalBackend}
             onOpenChange={(open) => {

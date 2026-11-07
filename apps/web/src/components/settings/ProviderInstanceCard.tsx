@@ -1,3 +1,4 @@
+import { ProviderSubscriptionControls } from "./ProviderSubscriptionControls";
 import { Spinner } from "~/components/ui/spinner";
 
 import {
@@ -1280,6 +1281,10 @@ export function ProviderInstanceCard({
           }
         />
       </SettingsSection>
+
+      {environmentId !== undefined && liveProvider !== undefined && !readOnly ? (
+        <ProviderSubscriptionControls environmentId={environmentId} provider={liveProvider} />
+      ) : null}
 
       {setup || environmentFields.length > 0 ? (
         <SettingsSection title="Setup">

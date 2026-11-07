@@ -38,6 +38,7 @@ export interface ProviderInstanceEntry {
   readonly installed: boolean;
   readonly status: ServerProviderState;
   readonly isDefault: boolean;
+  readonly ownerUserId?: string;
   readonly isAvailable: boolean;
   readonly snapshot: ServerProvider;
   readonly models: ReadonlyArray<ServerProviderModel>;
@@ -156,13 +157,21 @@ function applyProviderInstanceBranding(
 /** Picker order: each driver's default instance first, then its custom instances. */
 export function providerInstanceEntriesFor(
   providers: ReadonlyArray<ServerProvider>,
-  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
+  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides"> &
+    Partial<Pick<ServerSettings, "providerSubscriptions">>,
   projectId: ProjectId | null,
 ): ReadonlyArray<ProviderInstanceEntry> {
   return pipe(
     deriveProviderInstanceEntries(providers),
     (entries) => applyProviderInstanceSettings(entries, settings, projectId),
     sortProviderInstanceEntries,
+    (entries) =>
+      entries.map((entry) => ({
+        ...entry,
+        ...(settings.providerSubscriptions?.[entry.instanceId] === undefined
+          ? {}
+          : { ownerUserId: settings.providerSubscriptions[entry.instanceId]!.ownerUserId }),
+      })),
   );
 }
 

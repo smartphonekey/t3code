@@ -495,7 +495,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
 type ConnectedClientListRowProps = {
   clientSession: ServerClientSessionRecord;
   revokingClientSessionId: string | null;
-  onRevokeSession: (sessionId: ServerClientSessionRecord["sessionId"]) => void;
+  onRevokeSession: (clientSession: ServerClientSessionRecord) => void;
   canRevoke: boolean;
 };
 
@@ -561,7 +561,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
               size="xs"
               variant="destructive-outline"
               disabled={!canRevoke || revokingClientSessionId === clientSession.sessionId}
-              onClick={() => void onRevokeSession(clientSession.sessionId)}
+              onClick={() => void onRevokeSession(clientSession)}
             >
               {revokingClientSessionId === clientSession.sessionId ? "Revoking…" : "Revoke"}
             </Button>
@@ -808,7 +808,7 @@ type PairingClientsListProps = {
   revokingPairingLinkId: string | null;
   revokingClientSessionId: string | null;
   onRevokePairingLink: (id: string) => void;
-  onRevokeClientSession: (sessionId: ServerClientSessionRecord["sessionId"]) => void;
+  onRevokeClientSession: (clientSession: ServerClientSessionRecord) => void;
   canRevoke: boolean;
 };
 

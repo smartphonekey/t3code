@@ -1,3 +1,4 @@
+import { ProviderSubscriptionControls } from "./ProviderSubscriptionControls";
 import * as Dialog from "../../components/ui/Dialog";
 import {
   isAtomCommandInterrupted,
@@ -82,9 +83,14 @@ function EnvironmentProviders({
   readonly environment: SettingsTarget;
   readonly providers: ReadonlyArray<ServerProvider>;
 }) {
-  const accounts = providers.filter(canManageProvider);
+  const raw =
+    useAtomValue(serverEnvironment.rawProvidersValueAtom(environment.environmentId)) ?? providers;
+  const manageable = raw.filter((provider) =>
+    isManagedDriverAllowed(environment.serverConfig.managedPolicy, provider.driver),
+  );
+  const accounts = manageable.filter(canManageProvider);
   // Claude has no in-app sign-in; each account is its own instance on a signed-in config folder.
-  const claudeAccounts = providers.filter(
+  const claudeAccounts = manageable.filter(
     (provider) => provider.driver === CLAUDE_DRIVER && !canManageProvider(provider),
   );
   const canAddClaude = isManagedDriverAllowed(
@@ -94,12 +100,13 @@ function EnvironmentProviders({
   return (
     <>
       {accounts.map((provider, index) => (
-        <ProviderAccount
-          key={provider.instanceId}
-          environment={environment}
-          provider={provider}
-          divider={index > 0}
-        />
+        <View key={provider.instanceId}>
+          <ProviderAccount environment={environment} provider={provider} divider={index > 0} />
+          <ProviderSubscriptionControls
+            environmentId={environment.environmentId}
+            provider={provider}
+          />
+        </View>
       ))}
       {accounts.length === 0 ? (
         <Text className="p-4 text-foreground-muted">
@@ -107,7 +114,13 @@ function EnvironmentProviders({
         </Text>
       ) : null}
       {claudeAccounts.map((provider) => (
-        <ClaudeAccount key={provider.instanceId} environment={environment} provider={provider} />
+        <View key={provider.instanceId}>
+          <ClaudeAccount environment={environment} provider={provider} />
+          <ProviderSubscriptionControls
+            environmentId={environment.environmentId}
+            provider={provider}
+          />
+        </View>
       ))}
       {canAddClaude ? <AddClaudeAccount environment={environment} /> : null}
     </>

@@ -1,3 +1,4 @@
+import { RequestAccount } from "../auth/RequestAccount.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -749,14 +750,33 @@ it.effect("arms durable title generation after accepting the first message", () 
           thread: "thread:launch:title-generation",
           message: "Generate my title",
         }),
+        ownerUserId: "account:alice",
         title: "Generate my title",
         generateTitle: true,
       };
-      const launched = yield* launches.launch(input);
+      const settings = yield* ServerSettings.ServerSettingsService;
+      yield* settings.setProviderSubscription(modelSelection.instanceId, {
+        ownerUserId: "account:alice",
+        sharedUntil: null,
+      });
+      const denied = yield* launches
+        .launch({
+          ...input,
+          commandId: CommandId.make("subscription:denied"),
+          threadId: ThreadId.make("subscription:denied"),
+        })
+        .pipe(Effect.provideService(RequestAccount, { userId: "account:bob" }), Effect.flip);
+      assert.equal(denied._tag, "ThreadLaunchError");
+      const launched = yield* launches
+        .launch(input)
+        .pipe(Effect.provideService(RequestAccount, { userId: "account:alice" }));
       const generationCommandId = CommandId.make("command:launch:title-generation:initial-message");
 
       const projection = yield* threads.getThreadProjection(launched.threadId);
       assert.equal(projection.thread.title, "Generate my title");
+      assert.equal(projection.thread.ownerUserId, "account:alice");
+      assert.equal(projection.thread.billingUserId, "account:alice");
+      assert.equal(projection.runs[0]?.requesterUserId, "account:alice");
       assert.equal(projection.thread.titleRegeneration?.requestId, generationCommandId);
       assert.deepEqual(
         (yield* outbox.listByCommandId(generationCommandId)).map((effect) => effect.request),

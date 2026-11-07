@@ -6,9 +6,9 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import {
-  CLI_RELEASES_PAGE_URL,
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
+  cliReleasesPageUrl,
   newestCliReleaseVersion,
 } from "@t3tools/shared/cliRelease";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -63,7 +63,7 @@ export async function findEnvironmentUpdate(currentVersion: string, signal: Abor
   const channel = cliReleaseChannelOf(currentVersion);
   // Public release pages avoid the anonymous API quota shared by devices on the same network.
   const response = await fetchReleases(
-    channel === "stable" ? `${CLI_RELEASES_PAGE_URL}/latest` : `${CLI_RELEASES_PAGE_URL}.atom`,
+    channel === "stable" ? `${cliReleasesPageUrl()}/latest` : `${cliReleasesPageUrl()}.atom`,
     channel === "stable" ? "application/json" : "application/atom+xml",
     signal,
   );

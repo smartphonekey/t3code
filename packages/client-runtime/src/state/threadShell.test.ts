@@ -8,6 +8,7 @@ import {
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
@@ -16,6 +17,8 @@ import { PrimaryConnectionTarget } from "../connection/model.ts";
 import { v2Now, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
 import { isThreadWorking } from "./threadInbox.ts";
+import { managedRelaySessionAtom } from "../relay/managedRelayState.ts";
+import { threadOwnershipScopeAtom } from "./threadOwnership.ts";
 import { childThreadInputsTitle, createEnvironmentThreadShellAtoms } from "./threadShell.ts";
 
 const environmentId = EnvironmentId.make("environment-v2");
@@ -57,6 +60,46 @@ function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environment
 }
 
 describe("v2 thread shell lists", () => {
+  it("defaults to the account's threads across environments and can show all threads", () => {
+    const { registry, threads, snapshotAtom } = makeHarness([environmentId, remoteEnvironmentId]);
+    for (const id of [environmentId, remoteEnvironmentId]) {
+      registry.set(snapshotAtom(id), {
+        ...v2ShellSnapshot,
+        threads: ["alice", "bob", undefined].map((ownerUserId, index) => ({
+          ...v2ThreadShell,
+          id: ThreadId.make(`thread:${index}`),
+          ...(ownerUserId === undefined ? {} : { ownerUserId }),
+        })),
+      });
+    }
+    const signIn = (accountId: string) =>
+      registry.set(managedRelaySessionAtom, {
+        accountId,
+        readClerkToken: () => Effect.succeed(null),
+      });
+    const dispose = registry.mount(threads.quietThreadShellsAtom);
+    expect(registry.get(threads.quietThreadShellsAtom)).toHaveLength(6);
+    signIn("alice");
+    expect(registry.get(threads.quietThreadShellsAtom).map((thread) => thread.id)).toEqual([
+      "thread:0",
+      "thread:0",
+    ]);
+    expect(registry.get(threads.navigationThreadShellsAtom)).toHaveLength(2);
+    expect(registry.get(threads.visibleThreadShellsAtom)).toHaveLength(2);
+    expect(registry.get(threads.threadShellsAtom)).toHaveLength(6);
+    registry.set(threadOwnershipScopeAtom("alice"), "all");
+    expect(registry.get(threads.quietThreadShellsAtom)).toHaveLength(6);
+    signIn("bob");
+    expect(registry.get(threads.quietThreadShellsAtom).map((thread) => thread.id)).toEqual([
+      "thread:1",
+      "thread:1",
+    ]);
+    registry.set(managedRelaySessionAtom, null);
+    expect(registry.get(threads.quietThreadShellsAtom)).toHaveLength(6);
+    dispose();
+    registry.dispose();
+  });
+
   it("preserves ordered reference arrays when a middle thread changes", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const snapshot = {

@@ -2,10 +2,13 @@ const CLOUDFLARE_ACCESS_HOST_SUFFIX = ".cloudflareaccess.com";
 
 export function isCloudflareAccessLoginUrl(url: string): boolean {
   try {
-    const { hostname } = new URL(url);
-    return hostname === "cloudflareaccess.com" || hostname.endsWith(CLOUDFLARE_ACCESS_HOST_SUFFIX);
+    const { hostname, protocol } = new URL(url);
+    return (
+      protocol === "https:" &&
+      (hostname === "cloudflareaccess.com" || hostname.endsWith(CLOUDFLARE_ACCESS_HOST_SUFFIX))
+    );
   } catch {
-    return url.includes("cloudflareaccess.com");
+    return false;
   }
 }
 
@@ -13,14 +16,9 @@ export function isCloudflareAccessChallengeResponse(
   response: Response,
   requestUrl: string,
 ): boolean {
-  if (response.status === 401) {
-    return true;
-  }
-
   const location = response.headers.get("location");
   if (
-    response.status >= 300 &&
-    response.status < 400 &&
+    (response.status === 401 || (response.status >= 300 && response.status < 400)) &&
     location !== null &&
     isCloudflareAccessLoginUrl(location)
   ) {
