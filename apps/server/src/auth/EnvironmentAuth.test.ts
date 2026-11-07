@@ -23,6 +23,20 @@ import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
+
+const layerCloudflareAccessDisabled = Layer.succeed(
+  CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing.of({
+    readConfig: () => Effect.succeed({ enabled: false, teamDomain: "", applicationAud: "" }),
+    verifyRequestIdentity: () => Effect.succeedNone,
+    recordPairing: () => Effect.void,
+    resumeBrowserSession: () => Effect.succeedNone,
+    sessionHasStoredCloudflareAccessIdentity: () => Effect.succeed(false),
+    revokeCloudflareAccessIdentityForSession: () => Effect.void,
+  }),
+);
 
 const TEST_SERVER_PORT = 13_773;
 
@@ -45,7 +59,9 @@ const layerEnvironmentAuth = (overrides?: Partial<ServerConfig.ServerConfig["Ser
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provide(ServerSecretStore.layer),
     Layer.provide(ServerEnvironment.layerIdentity),
+    Layer.provide(ServerSettings.layerTest()),
     Layer.provide(layerServerConfig(overrides)),
+    Layer.provideMerge(layerCloudflareAccessDisabled),
   );
 
 const makeCookieRequest = (

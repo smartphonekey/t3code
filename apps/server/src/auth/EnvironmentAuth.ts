@@ -49,6 +49,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import { requestUrl } from "../requestUrl.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
 
 const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
@@ -335,6 +336,7 @@ export class ServerAuthCloudMintJwtSigningError extends Schema.TaggedError<Serve
 }
 
 export const ServerAuthInternalError = Schema.Union([
+  CloudflareAccessIdentityPairing.CloudflareAccessPairingError,
   ServerAuthBootstrapCredentialValidationError,
   ServerAuthSessionCredentialValidationError,
   ServerAuthAuthenticatedSessionIssueError,
@@ -525,6 +527,7 @@ export class EnvironmentAuth extends Context.Service<
     readonly revokeClientSession: (
       currentSessionId: AuthSessionId,
       targetSessionId: AuthSessionId,
+      revokeCloudflareAccessIdentity?: boolean,
     ) => Effect.Effect<boolean, ServerAuthForbiddenOperationError | ServerAuthInternalError>;
     readonly revokeOtherClientSessions: (
       currentSessionId: AuthSessionId,
@@ -718,6 +721,9 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
+  const cloudflareAccess = yield* Effect.serviceOption(
+    CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  );
   const devAuth = resolveReusableDevAuth(config);
 
   const authenticateToken = (
@@ -1172,21 +1178,35 @@ export const make = Effect.gen(function* () {
 
   const listClientSessions: EnvironmentAuth["Service"]["listClientSessions"] = (currentSessionId) =>
     listSessions().pipe(
-      Effect.map((clientSessions) =>
-        clientSessions.map((clientSession): AuthClientSession => ({
-          ...clientSession,
-          ...authScopeResponse(clientSession.scopes),
-          current: clientSession.sessionId === currentSessionId,
-        })),
+      Effect.flatMap((clientSessions) =>
+        Effect.forEach(clientSessions, (clientSession) =>
+          (Option.isSome(cloudflareAccess)
+            ? cloudflareAccess.value.sessionHasStoredCloudflareAccessIdentity(
+                clientSession.sessionId,
+              )
+            : Effect.succeed(false)
+          ).pipe(
+            Effect.map((paired) => ({
+              ...clientSession,
+              ...authScopeResponse(clientSession.scopes),
+              current: clientSession.sessionId === currentSessionId,
+              ...(paired ? { cloudflareAccessIdentityPaired: true as const } : {}),
+            })),
+          ),
+        ),
       ),
       Effect.withSpan("EnvironmentAuth.listClientSessions"),
     );
 
   const revokeClientSession: EnvironmentAuth["Service"]["revokeClientSession"] = Effect.fn(
     "EnvironmentAuth.revokeClientSession",
-  )(function* (currentSessionId, targetSessionId) {
+  )(function* (currentSessionId, targetSessionId, revokeCloudflareAccessIdentity) {
     if (currentSessionId === targetSessionId) {
       return yield* new ServerAuthForbiddenOperationError({});
+    }
+    if (revokeCloudflareAccessIdentity === true && Option.isSome(cloudflareAccess)) {
+      yield* cloudflareAccess.value.revokeCloudflareAccessIdentityForSession(targetSessionId);
+      return true;
     }
     return yield* revokeSession(targetSessionId);
   });

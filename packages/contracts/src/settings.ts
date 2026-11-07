@@ -1329,6 +1329,20 @@ export const ServerSettings = Schema.Struct({
   /** Beta: guest links for this machine's threads. Off refuses new links and pauses existing ones. */
   guestSharingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * When enabled behind Cloudflare Access, remember a verified human Access identity after pairing
+   * so the same person can skip pairing on later browsers. Off by default so instances not behind
+   * Access ignore Cf-Access-Jwt-Assertion entirely.
+   */
+  enableCloudflareAccessIdentityPairing: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  /** Cloudflare Access team domain, for example `myteam.cloudflareaccess.com` (no scheme). */
+  cloudflareAccessTeamDomain: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /** Cloudflare Access application audience (AUD) tag for this T3 deployment. */
+  cloudflareAccessApplicationAud: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  /**
    * Beta: links to the user's other machines, both ways. Off refuses new links, calls over links
    * and tasks on another machine; tasks already running there finish.
    */
@@ -1723,6 +1737,9 @@ export const ServerSettingsPatch = Schema.Struct({
   hiddenThreadTags: Schema.optionalKey(Schema.Array(Schema.String)),
   hideTaggedThreads: Schema.optionalKey(Schema.Boolean),
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
+  enableCloudflareAccessIdentityPairing: Schema.optionalKey(Schema.Boolean),
+  cloudflareAccessTeamDomain: Schema.optionalKey(Schema.String),
+  cloudflareAccessApplicationAud: Schema.optionalKey(Schema.String),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({

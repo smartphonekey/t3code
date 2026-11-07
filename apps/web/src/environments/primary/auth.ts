@@ -123,6 +123,7 @@ export interface ServerClientSessionRecord {
   readonly lastConnectedAt: string | null;
   readonly connected: boolean;
   readonly current: boolean;
+  readonly cloudflareAccessIdentityPaired?: boolean;
 }
 
 type ServerAuthGateState =
