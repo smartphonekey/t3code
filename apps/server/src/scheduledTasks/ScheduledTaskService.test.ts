@@ -31,6 +31,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { RequestAccount } from "../auth/RequestAccount.ts";
 
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
 
@@ -488,6 +489,11 @@ it.effect("a bound run follows its thread when promotion moves it mid-send", () 
 it.effect("a fresh-session task launches one thread, then starts each later run fresh in it", () =>
   Effect.gen(function* () {
     const launches = yield* Ref.make(0);
+    const requesters = yield* Ref.make<Array<string | null | undefined>>([]);
+    const captureRequester = Effect.gen(function* () {
+      const account = yield* RequestAccount;
+      yield* Ref.update(requesters, (all) => [...all, account?.userId]);
+    });
     const sends = yield* Ref.make<Array<{ threadId: ThreadId; freshContext?: boolean }>>([]);
     const launched = ThreadId.make("thread:fresh-session-task");
     const layer = ScheduledTaskService.layer.pipe(
@@ -497,6 +503,7 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
           Layer.mock(ThreadLaunchService.ThreadLaunchService)({
             launch: () =>
               Ref.update(launches, (n) => n + 1).pipe(
+                Effect.andThen(captureRequester),
                 Effect.as({ threadId: launched, resumed: false } as never),
               ),
           }),
@@ -509,7 +516,7 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
                   threadId: input.threadId,
                   ...(input.freshContext === undefined ? {} : { freshContext: input.freshContext }),
                 },
-              ]).pipe(Effect.as({} as never)),
+              ]).pipe(Effect.andThen(captureRequester), Effect.as({} as never)),
           }),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -535,7 +542,19 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
         runtimeMode: "full-access",
         interactionMode: "default",
       } as const;
-      yield* service.upsert({ ...input, threadMode: "fresh_session" });
+      const saved = yield* service
+        .upsert({ ...input, threadMode: "fresh_session" })
+        .pipe(Effect.provideService(RequestAccount, { userId: "alice" }));
+      assert.equal(saved.task.billingUserId, "alice");
+      // Other signed-in people cannot spend the saved owner's subscription by editing or running it.
+      const deniedEdit = yield* service
+        .upsert({ ...input, prompt: "Spend Alice's quota" })
+        .pipe(Effect.provideService(RequestAccount, { userId: "bob" }), Effect.flip);
+      assert.include(deniedEdit.message, "owner");
+      const deniedRun = yield* service
+        .runNow({ id: input.id })
+        .pipe(Effect.provideService(RequestAccount, { userId: "bob" }), Effect.flip);
+      assert.include(deniedRun.message, "owner");
 
       assert.equal((yield* service.runNow({ id: input.id })).threadId, launched);
       // A form opened before the first run saves no thread; the binding stays.
@@ -553,6 +572,7 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
       yield* service.runNow({ id: input.id });
 
       assert.equal(yield* Ref.get(launches), 1);
+      assert.deepEqual(yield* Ref.get(requesters), ["alice", "alice"]);
       assert.deepEqual(yield* Ref.get(sends), [{ threadId: launched, freshContext: true }]);
       // Its thread stays in the old project, so moving the task leaves it for a new one.
       const moved = yield* service.upsert({

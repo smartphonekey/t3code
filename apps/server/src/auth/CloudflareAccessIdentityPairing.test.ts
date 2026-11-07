@@ -185,7 +185,7 @@ it.layer(
       yield* pairing.recordPairing(request, session.sessionId);
       const row = yield* authSessions.getById({ sessionId: session.sessionId });
       expect(Option.isSome(row)).toBe(true);
-      expect(row.value.cloudflareAccessIdentityKey).toBe(`cf-access:${SUB}`);
+      expect(Option.getOrThrow(row).cloudflareAccessIdentityKey).toBe(`cf-access:${SUB}`);
     }).pipe(Effect.provide(layerBase(true))),
   );
 

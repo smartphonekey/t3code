@@ -31,6 +31,23 @@ Add another ChatGPT account in **Settings → Providers**, then select the accou
 from the thread's model picker. Compatible accounts can continue the same thread.
 Connecting accounts through T3 Code leaves your CLI login unchanged.
 
+### Personal defaults and temporary sharing
+
+Sign in to T3 Connect to associate provider accounts with your identity across devices.
+New accounts you add or sign into become yours. For an existing server account, choose
+**Use as my subscription** in **Settings → Providers**. New chats prefer your available accounts. If yours has a reported usage limit,
+an available shared account can be selected instead. You can also explicitly choose
+a shared account from the model picker.
+
+Accounts you own are private until you choose **Share until weekly reset**. Sharing
+expires at the weekly reset reported when you enable it and does not renew. Choose
+**Stop sharing** to revoke it sooner. If the provider does not report its weekly reset,
+choose an explicit expiry in web or desktop Settings. Existing unassigned server accounts
+retain their previous access until claimed.
+
+Access is checked before every new turn, including queued turns. A turn already running
+can finish after sharing expires. Changing sign-in or credential configuration stops sharing.
+
 ### Multiple CLI logins
 
 A shared Codex home with a shadow home lets work and personal accounts continue

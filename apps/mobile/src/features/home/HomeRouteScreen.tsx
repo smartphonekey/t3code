@@ -1,3 +1,6 @@
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
+import { threadOwnershipScopeAtom } from "@t3tools/client-runtime/state/threads";
 import { uuidv4 } from "../../lib/uuid";
 import { ThreadUndoNotice } from "./ThreadUndoNotice";
 import { use } from "react";
@@ -36,6 +39,10 @@ import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
 import { buildHomeListFilterMenuItems } from "./home-list-filter-menu";
 
 export function HomeRouteScreen() {
+  const accountId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
+  const ownershipScopeAtom = threadOwnershipScopeAtom(accountId ?? "");
+  const ownershipScope = useAtomValue(ownershipScopeAtom);
+  const setOwnershipScope = useAtomSet(ownershipScopeAtom);
   const nativePrimaryColumn = use(NativePrimaryColumnContext);
   const { layout, primarySidebarSearchQuery, setPrimarySidebarSearchQuery, startNewTask } =
     useAdaptiveWorkspaceLayout();
@@ -174,15 +181,42 @@ export function HomeRouteScreen() {
             accessibilityLabel: "Search threads",
           }}
           filter={{
-            customized: selectedEnvironmentId !== null || selectedProjectKey !== null,
-            items: buildHomeListFilterMenuItems({
-              environments,
-              projects: projectFilterOptions,
-              selectedEnvironmentId,
-              selectedProjectKey,
-              onEnvironmentChange: setSelectedEnvironmentId,
-              onProjectChange: setSelectedProjectKey,
-            }),
+            customized:
+              (accountId !== null && ownershipScope === "mine") ||
+              selectedEnvironmentId !== null ||
+              selectedProjectKey !== null,
+            items: [
+              ...(accountId === null
+                ? []
+                : [
+                    {
+                      id: "ownership",
+                      title: "Chats",
+                      items: [
+                        {
+                          id: "ownership:mine",
+                          title: "My chats",
+                          selected: ownershipScope === "mine",
+                          onPress: () => setOwnershipScope("mine"),
+                        },
+                        {
+                          id: "ownership:all",
+                          title: "All chats",
+                          selected: ownershipScope === "all",
+                          onPress: () => setOwnershipScope("all"),
+                        },
+                      ],
+                    },
+                  ]),
+              ...buildHomeListFilterMenuItems({
+                environments,
+                projects: projectFilterOptions,
+                selectedEnvironmentId,
+                selectedProjectKey,
+                onEnvironmentChange: setSelectedEnvironmentId,
+                onProjectChange: setSelectedProjectKey,
+              }),
+            ],
           }}
         />
 

@@ -112,7 +112,7 @@ function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2Thr
 const planFork = (
   sourceRun: OrchestrationV2Run,
   sourceProjection = makeSourceProjection(sourceRun),
-  options: { readonly sideChat?: boolean } = {},
+  options: { readonly sideChat?: boolean; readonly ownerUserId?: string } = {},
 ) =>
   Effect.gen(function* () {
     const service = yield* ThreadForkService.ThreadForkServiceV2;
@@ -139,6 +139,7 @@ it.effect("resets a fork's pin, snooze, settle and delegation state but keeps it
     const linkOrigin = { sessionId: "mcp-session:fork-source", label: "Linked laptop" };
     const sourceThread: OrchestrationV2AppThread = {
       ...makeSourceThread(),
+      ownerUserId: "account:alice",
       lastSnoozeWakeAt: snoozedAt,
       pinnedAt: snoozedAt,
       pinOrderKey: "a0",
@@ -159,6 +160,13 @@ it.effect("resets a fork's pin, snooze, settle and delegation state but keeps it
       thread: sourceThread,
     });
 
+    assert.equal(result.targetThread.ownerUserId, "account:alice");
+    const otherOwnerFork = yield* planFork(
+      sourceRun,
+      { ...makeSourceProjection(sourceRun), thread: sourceThread },
+      { ownerUserId: "account:bob" },
+    );
+    assert.equal(otherOwnerFork.targetThread.ownerUserId, "account:bob");
     assert.isNull(result.targetThread.snoozedUntil);
     assert.isNull(result.targetThread.snoozedAt);
     assert.isNull(result.targetThread.lastSnoozeWakeAt);

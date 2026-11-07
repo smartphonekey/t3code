@@ -336,6 +336,7 @@ export class ServerAuthCloudMintJwtSigningError extends Schema.TaggedError<Serve
 }
 
 export const ServerAuthInternalError = Schema.Union([
+  CloudflareAccessIdentityPairing.CloudflareAccessPairingError,
   ServerAuthBootstrapCredentialValidationError,
   ServerAuthSessionCredentialValidationError,
   ServerAuthAuthenticatedSessionIssueError,
@@ -720,7 +721,9 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
-  const cloudflareAccess = yield* CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing;
+  const cloudflareAccess = yield* Effect.serviceOption(
+    CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  );
   const devAuth = resolveReusableDevAuth(config);
 
   const authenticateToken = (
@@ -1177,7 +1180,12 @@ export const make = Effect.gen(function* () {
     listSessions().pipe(
       Effect.flatMap((clientSessions) =>
         Effect.forEach(clientSessions, (clientSession) =>
-          cloudflareAccess.sessionHasStoredCloudflareAccessIdentity(clientSession.sessionId).pipe(
+          (Option.isSome(cloudflareAccess)
+            ? cloudflareAccess.value.sessionHasStoredCloudflareAccessIdentity(
+                clientSession.sessionId,
+              )
+            : Effect.succeed(false)
+          ).pipe(
             Effect.map((paired) => ({
               ...clientSession,
               ...authScopeResponse(clientSession.scopes),
@@ -1196,8 +1204,8 @@ export const make = Effect.gen(function* () {
     if (currentSessionId === targetSessionId) {
       return yield* new ServerAuthForbiddenOperationError({});
     }
-    if (revokeCloudflareAccessIdentity === true) {
-      yield* cloudflareAccess.revokeCloudflareAccessIdentityForSession(targetSessionId);
+    if (revokeCloudflareAccessIdentity === true && Option.isSome(cloudflareAccess)) {
+      yield* cloudflareAccess.value.revokeCloudflareAccessIdentityForSession(targetSessionId);
       return true;
     }
     return yield* revokeSession(targetSessionId);

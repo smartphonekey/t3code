@@ -1,3 +1,6 @@
+import * as DateTime from "effect/DateTime";
+import { RequestAccount } from "../auth/RequestAccount.ts";
+import { canUseProviderSubscription } from "@t3tools/contracts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -97,6 +100,7 @@ export interface ThreadLaunchInput {
     };
     readonly metadata?: OrchestrationV2ProviderThreadNativeMetadata;
   };
+  readonly ownerUserId?: string;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
   /** The linked environment this launch is for, if one asked for it. */
@@ -861,6 +865,24 @@ const make = Effect.gen(function* () {
         )("Reusing an existing thread requires a thread id.");
       }
 
+      const account = yield* RequestAccount;
+      const subscription = (yield* serverSettings.getSettings.pipe(
+        Effect.mapError(mapError(input, "create-thread")),
+      )).providerSubscriptions[input.modelSelection.instanceId];
+      if (
+        account !== undefined &&
+        !canUseProviderSubscription(
+          subscription,
+          account.userId,
+          DateTime.toEpochMillis(yield* DateTime.now),
+        )
+      )
+        return yield* mapError(
+          input,
+          "create-thread",
+        )(
+          "This subscription is private or sharing has expired. Choose your own or an active shared account.",
+        );
       const launchReceipt = yield* readReceipt(input, input.commandId);
       yield* threads.assertProviderInstanceEnabled({
         projectId: input.projectId,
@@ -932,6 +954,7 @@ const make = Effect.gen(function* () {
               })
             : threads.dispatch({
                 type: "thread.create",
+                ...(input.ownerUserId === undefined ? {} : { ownerUserId: input.ownerUserId }),
                 commandId: input.commandId,
                 threadId: candidateThreadId,
                 projectId: input.projectId,

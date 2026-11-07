@@ -1775,6 +1775,7 @@ const assertProjectScopedShells = Effect.fn("assertProjectScopedShells")(functio
       threadId: input.threadId,
       occurredAt: now,
       payload: {
+        ownerUserId: "account:alice",
         createdBy: "user",
         creationSource: "web",
         id: input.threadId,
@@ -1869,6 +1870,17 @@ const assertProjectScopedShells = Effect.fn("assertProjectScopedShells")(functio
   });
 
   const unscoped = yield* projectionStore.getShellSnapshot();
+  assert.equal(
+    unscoped.threads.find((thread) => thread.id === activeThreadId)?.ownerUserId,
+    "account:alice",
+  );
+  assert.equal(
+    unscoped.archivedThreads.find((thread) => thread.id === archivedThreadId)?.ownerUserId,
+    "account:alice",
+  );
+  const projection = yield* projectionStore.getThreadProjection(activeThreadId);
+  assert.equal(ProjectionStore.threadShellFromProjection(projection).ownerUserId, "account:alice");
+
   const inProject = (thread: { readonly projectId: ProjectId }) => thread.projectId === projectId;
   const active = yield* projectionStore.getShellSnapshot({ projectId, location: "active" });
   assert.deepEqual(active.threads, unscoped.threads.filter(inProject));

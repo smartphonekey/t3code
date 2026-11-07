@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import {
   type DraftId,
   deriveEffectiveComposerModelState,
@@ -55,7 +57,9 @@ export function useComposerProviderModel(
     settings,
     activeProjectId,
   );
+  const currentUserId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
   const selection = resolveComposerProviderSelection({
+    currentUserId,
     entries: providerInstanceEntries,
     candidateInstanceIds,
     lockedProvider,

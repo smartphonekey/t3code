@@ -485,6 +485,7 @@ export function buildLocalDraftThread(
 
 export function resolveComposerProviderSelection(input: {
   entries: ReadonlyArray<ProviderInstanceEntry>;
+  currentUserId?: string | null;
   candidateInstanceIds: ReadonlyArray<ProviderInstanceId | null | undefined>;
   lockedProvider: ProviderDriverKind | null;
   lockedInstanceId: ProviderInstanceId | null | undefined;
@@ -512,8 +513,23 @@ export function resolveComposerProviderSelection(input: {
       (!lockedContinuationGroupKey || entry.continuationGroupKey === lockedContinuationGroupKey) &&
       (!requiresExactInstance || entry.instanceId === input.lockedInstanceId),
   );
+  const personal =
+    input.currentUserId == null || input.lockedProvider !== null
+      ? undefined
+      : compatibleEntries.find(
+          (entry) =>
+            entry.driverKind === requestedDriverKind &&
+            entry.ownerUserId === input.currentUserId &&
+            entry.enabled &&
+            entry.isAvailable,
+        );
+  const candidates = [
+    ...input.candidateInstanceIds.slice(0, -1),
+    personal?.instanceId,
+    input.candidateInstanceIds.at(-1),
+  ];
   const selectedProviderEntry =
-    input.candidateInstanceIds
+    candidates
       .map((candidate) =>
         compatibleEntries.find(
           (entry) => entry.instanceId === candidate && entry.enabled && entry.isAvailable,

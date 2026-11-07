@@ -52,7 +52,7 @@ export class AuthCloudflareAccessIdentityRepository extends Context.Service<
       input: DeleteAuthCloudflareAccessIdentityInput,
     ) => Effect.Effect<boolean, AuthCloudflareAccessIdentityRepositoryError>;
   }
->()("t3/persistence/AuthCloudflareAccessIdentityRepository") {}
+>()("t3/persistence/AuthCloudflareAccessIdentities/AuthCloudflareAccessIdentityRepository") {}
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

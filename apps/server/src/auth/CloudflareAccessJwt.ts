@@ -37,7 +37,7 @@ const decodeKeySet = Schema.decodeUnknownEffect(Jwks.KeySet);
 const failJwtVerification = (message: string) =>
   Effect.fail(new CloudflareAccessJwtVerificationError({ message }));
 
-export function normalizeCloudflareAccessTeamDomain(teamDomain: string): string | null {
+function normalizeCloudflareAccessTeamDomain(teamDomain: string): string | null {
   const trimmed = teamDomain.trim().replace(/\/+$/u, "");
   if (trimmed.length === 0) return null;
   try {
@@ -50,7 +50,7 @@ export function normalizeCloudflareAccessTeamDomain(teamDomain: string): string 
   return trimmed;
 }
 
-export function cloudflareAccessJwksUrl(teamDomain: string): string | null {
+function cloudflareAccessJwksUrl(teamDomain: string): string | null {
   const host = normalizeCloudflareAccessTeamDomain(teamDomain);
   return host === null ? null : `https://${host}/cdn-cgi/access/certs`;
 }
@@ -174,7 +174,7 @@ export const generateCloudflareAccessTestJwt = (input: {
       sub: input.sub,
       aud: input.aud,
       iss: `https://${input.teamDomain}`,
-      exp: input.exp ?? Math.floor(Date.now() / 1000) + 3600,
+      exp: input.exp ?? 4_102_444_800, // Test fixtures default to 2100-01-01.
       ...(input.email !== undefined ? { email: input.email } : {}),
       ...(input.common_name !== undefined ? { common_name: input.common_name } : {}),
       ...(input.type !== undefined ? { type: input.type } : {}),

@@ -12,6 +12,9 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Signature from "effect/crypto/Signature";
+import * as HttpClient from "effect/http/HttpClient";
 import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 
 import * as AuthCloudflareAccessIdentities from "../persistence/AuthCloudflareAccessIdentities.ts";
@@ -42,31 +45,47 @@ export const CloudflareAccessJwtTestJwks = Context.Reference<
   defaultValue: () => undefined,
 });
 
+export class CloudflareAccessPairingError extends Schema.TaggedError<CloudflareAccessPairingError>()(
+  "CloudflareAccessPairingError",
+  { cause: Schema.Defect() },
+) {}
+
+const mapPairingError = Effect.mapError(
+  (cause: unknown) => new CloudflareAccessPairingError({ cause }),
+);
+
 export class CloudflareAccessIdentityPairing extends Context.Service<
   CloudflareAccessIdentityPairing,
   {
-    readonly readConfig: () => Effect.Effect<CloudflareAccessIdentityPairingConfig>;
+    readonly readConfig: () => Effect.Effect<
+      CloudflareAccessIdentityPairingConfig,
+      CloudflareAccessPairingError
+    >;
     readonly verifyRequestIdentity: (request: HttpServerRequest.HttpServerRequest) => Effect.Effect<
       Option.Option<{
         readonly identityKey: string;
         readonly subject: string;
         readonly email?: string;
-      }>
+      }>,
+      CloudflareAccessPairingError
     >;
     readonly recordPairing: (
       request: HttpServerRequest.HttpServerRequest,
       sessionId: AuthSessionId,
-    ) => Effect.Effect<void>;
+    ) => Effect.Effect<void, CloudflareAccessPairingError>;
     readonly resumeBrowserSession: (
       request: HttpServerRequest.HttpServerRequest,
       client: AuthClientMetadata,
-    ) => Effect.Effect<Option.Option<CloudflareAccessBrowserSessionBootstrap>>;
+    ) => Effect.Effect<
+      Option.Option<CloudflareAccessBrowserSessionBootstrap>,
+      CloudflareAccessPairingError
+    >;
     readonly sessionHasStoredCloudflareAccessIdentity: (
       sessionId: AuthSessionId,
-    ) => Effect.Effect<boolean>;
+    ) => Effect.Effect<boolean, CloudflareAccessPairingError>;
     readonly revokeCloudflareAccessIdentityForSession: (
       sessionId: AuthSessionId,
-    ) => Effect.Effect<void>;
+    ) => Effect.Effect<void, CloudflareAccessPairingError>;
   }
 >()("t3/auth/CloudflareAccessIdentityPairing") {}
 
@@ -78,6 +97,8 @@ const emptyConfig = (): CloudflareAccessIdentityPairingConfig => ({
 
 const make = Effect.gen(function* () {
   const settings = yield* ServerSettings.ServerSettingsService;
+  const http = yield* HttpClient.HttpClient;
+  const signature = yield* Signature.Signature;
   const sessions = yield* SessionStore.SessionStore;
   const authSessions = yield* AuthSessions.AuthSessionRepository;
   const identities = yield* AuthCloudflareAccessIdentities.AuthCloudflareAccessIdentityRepository;
@@ -95,7 +116,7 @@ const make = Effect.gen(function* () {
       return { enabled: false, teamDomain, applicationAud };
     }
     return { enabled: true, teamDomain, applicationAud };
-  });
+  }, mapPairingError);
 
   const verifyRequestIdentity: CloudflareAccessIdentityPairing["Service"]["verifyRequestIdentity"] =
     Effect.fn("CloudflareAccessIdentityPairing.verifyRequestIdentity")(function* (request) {
@@ -113,7 +134,11 @@ const make = Effect.gen(function* () {
         teamDomain: config.teamDomain,
         applicationAud: config.applicationAud,
         ...(testJwks !== undefined ? { fixedJwks: testJwks.keys } : {}),
-      }).pipe(Effect.option);
+      }).pipe(
+        Effect.option,
+        Effect.provideService(HttpClient.HttpClient, http),
+        Effect.provideService(Signature.Signature, signature),
+      );
       if (Option.isNone(claims)) {
         return Option.none();
       }
@@ -122,7 +147,7 @@ const make = Effect.gen(function* () {
         subject: claims.value.sub,
         ...(claims.value.email !== undefined ? { email: claims.value.email } : {}),
       });
-    });
+    }, mapPairingError);
 
   const bindSessionToIdentity = (sessionId: AuthSessionId, identityKey: string) =>
     authSessions.setCloudflareAccessIdentityKey({
@@ -145,7 +170,7 @@ const make = Effect.gen(function* () {
       pairedAt,
     });
     yield* bindSessionToIdentity(sessionId, identity.value.identityKey);
-  });
+  }, mapPairingError);
 
   const resumeBrowserSession: CloudflareAccessIdentityPairing["Service"]["resumeBrowserSession"] =
     Effect.fn("CloudflareAccessIdentityPairing.resumeBrowserSession")(function* (request, client) {
@@ -176,7 +201,7 @@ const make = Effect.gen(function* () {
         } satisfies AuthBrowserSessionResult,
         sessionToken: session.token,
       });
-    });
+    }, mapPairingError);
 
   const sessionHasStoredCloudflareAccessIdentity: CloudflareAccessIdentityPairing["Service"]["sessionHasStoredCloudflareAccessIdentity"] =
     Effect.fn("CloudflareAccessIdentityPairing.sessionHasStoredCloudflareAccessIdentity")(
@@ -194,6 +219,7 @@ const make = Effect.gen(function* () {
         });
         return Option.isSome(stored);
       },
+      mapPairingError,
     );
 
   const revokeCloudflareAccessIdentityForSession: CloudflareAccessIdentityPairing["Service"]["revokeCloudflareAccessIdentityForSession"] =
@@ -218,6 +244,7 @@ const make = Effect.gen(function* () {
         });
         yield* identities.deleteByIdentityKey({ key });
       },
+      mapPairingError,
     );
 
   return CloudflareAccessIdentityPairing.of({

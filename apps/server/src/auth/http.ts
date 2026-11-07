@@ -267,7 +267,9 @@ export const layer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
     const sessions = yield* SessionStore.SessionStore;
-    const cloudflareAccess = yield* CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing;
+    const cloudflareAccess = yield* Effect.serviceOption(
+      CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+    );
 
     return handlers
       .handle(
@@ -285,9 +287,10 @@ export const layer = HttpApiBuilder.group(
             if (
               !result.authenticated &&
               credential === undefined &&
-              result.sessionMethod === undefined
+              result.sessionMethod === undefined &&
+              Option.isSome(cloudflareAccess)
             ) {
-              const resumed = yield* cloudflareAccess.resumeBrowserSession(
+              const resumed = yield* cloudflareAccess.value.resumeBrowserSession(
                 request,
                 deriveAuthClientMetadata({ request }),
               );
@@ -364,9 +367,10 @@ export const layer = HttpApiBuilder.group(
             yield* appendCredentialResponseHeaders;
             const pairedSession = yield* sessions
               .verify(result.sessionToken)
-              .pipe(Effect.catch(() => Effect.succeed(null)));
+              .pipe(Effect.orElseSucceed(() => null));
             if (pairedSession !== null) {
-              yield* cloudflareAccess.recordPairing(request, pairedSession.sessionId);
+              if (Option.isSome(cloudflareAccess))
+                yield* cloudflareAccess.value.recordPairing(request, pairedSession.sessionId);
             }
             return result.response;
           },

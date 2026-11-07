@@ -8,6 +8,7 @@ import { pipe } from "effect/Function";
 import * as Order from "effect/Order";
 import { AsyncResult, Atom } from "effect/reactivity";
 
+import { threadOwnerFilterAtom } from "./threadOwnership.ts";
 import { threadKey } from "./entities.ts";
 import { hiddenThreadKeys, type TagFilteredEnvironment } from "./threadTagFilter.ts";
 
@@ -94,14 +95,17 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
         hidingAnywhere ? new Set(get(options.liveThreadRefsAtom).map(threadKey)) : undefined,
         hidingAnywhere,
       );
-      if (hidden.size === 0) return { snapshots, error, isLoading };
+      const ownerUserId = get(threadOwnerFilterAtom);
+      if (hidden.size === 0 && ownerUserId === null) return { snapshots, error, isLoading };
       return {
         snapshots: snapshots.map(({ environmentId, snapshot }) => ({
           environmentId,
           snapshot: {
             ...snapshot,
             threads: snapshot.threads.filter(
-              (thread) => !hidden.has(threadKey({ environmentId, threadId: thread.id })),
+              (thread) =>
+                (ownerUserId === null || thread.ownerUserId === ownerUserId) &&
+                !hidden.has(threadKey({ environmentId, threadId: thread.id })),
             ),
           },
         })),

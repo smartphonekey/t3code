@@ -25,15 +25,14 @@ import * as SessionStore from "./SessionStore.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
-import * as Option from "effect/Option";
 
 const layerCloudflareAccessDisabled = Layer.succeed(
   CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
   CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing.of({
     readConfig: () => Effect.succeed({ enabled: false, teamDomain: "", applicationAud: "" }),
-    verifyRequestIdentity: () => Effect.succeed(Option.none()),
+    verifyRequestIdentity: () => Effect.succeedNone,
     recordPairing: () => Effect.void,
-    resumeBrowserSession: () => Effect.succeed(Option.none()),
+    resumeBrowserSession: () => Effect.succeedNone,
     sessionHasStoredCloudflareAccessIdentity: () => Effect.succeed(false),
     revokeCloudflareAccessIdentityForSession: () => Effect.void,
   }),
