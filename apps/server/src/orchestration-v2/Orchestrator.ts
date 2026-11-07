@@ -2945,6 +2945,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
+      ...(command.ownerUserId === undefined ? {} : { ownerUserId: command.ownerUserId }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
@@ -4675,6 +4676,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : contextSourcePointForRun(sourceProjection, sourceRun),
         transferId,
         targetThreadId: command.targetThreadId,
+        ...(command.ownerUserId === undefined ? {} : { ownerUserId: command.ownerUserId }),
         ...(command.title === undefined ? {} : { title: command.title }),
         ...(command.sideChat ? { sideChat: true } : {}),
         createdBy: command.createdBy,

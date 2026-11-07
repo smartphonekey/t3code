@@ -221,6 +221,11 @@ The linked pull request participates in automatic settlement.
 
 ## Find and reference work
 
+When signed in to T3 Connect, **My chats** shows threads created with your account
+across devices. Choose **All chats** in the sidebar, or in the mobile thread list's
+filters, to include other accounts and older or imported threads without an owner.
+This filters lists and search results; it does not restrict access to the shared server.
+
 On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
 across connected environments by title, branch, pull request, or project.
 Threads you open often or recently rank higher, and for three weeks the thread

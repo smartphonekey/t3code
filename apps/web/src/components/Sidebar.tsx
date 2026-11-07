@@ -9,7 +9,9 @@ import {
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
+import { threadOwnershipScopeAtom } from "@t3tools/client-runtime/state/threads";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 import * as Schema from "effect/Schema";
@@ -1101,6 +1103,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
+  const accountId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
+  const ownershipScopeAtom = threadOwnershipScopeAtom(accountId ?? "");
+  const ownershipScope = useAtomValue(ownershipScopeAtom);
+  const setOwnershipScope = useAtomSet(ownershipScopeAtom);
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -2987,6 +2993,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
               hasProjects={projectGroups.length > 0}
+              ownershipScope={
+                accountId !== null ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={
+                      ownershipScope === "mine"
+                        ? "Showing my chats. Show all chats"
+                        : "Showing all chats. Show my chats"
+                    }
+                    onClick={() => {
+                      clearSelection();
+                      setOwnershipScope(ownershipScope === "mine" ? "all" : "mine");
+                      scrollSidebarToTop(sidebarContentRef.current);
+                    }}
+                  >
+                    {ownershipScope === "mine" ? "My chats" : "All chats"}
+                  </Button>
+                ) : null
+              }
               projectScope={
                 <Combobox
                   items={projectScopeItems}

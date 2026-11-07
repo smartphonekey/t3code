@@ -97,6 +97,7 @@ export interface ThreadLaunchInput {
     };
     readonly metadata?: OrchestrationV2ProviderThreadNativeMetadata;
   };
+  readonly ownerUserId?: string;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
   /** The linked environment this launch is for, if one asked for it. */
@@ -932,6 +933,7 @@ const make = Effect.gen(function* () {
               })
             : threads.dispatch({
                 type: "thread.create",
+                ...(input.ownerUserId === undefined ? {} : { ownerUserId: input.ownerUserId }),
                 commandId: input.commandId,
                 threadId: candidateThreadId,
                 projectId: input.projectId,

@@ -442,6 +442,8 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
 );
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  /** Account ownership is display metadata, not an authorization boundary. */
+  ownerUserId: Schema.optional(TrimmedNonEmptyString),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -2082,6 +2084,8 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  /** Account ownership is display metadata, not an authorization boundary. */
+  ownerUserId: Schema.optional(TrimmedNonEmptyString),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -2919,6 +2923,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.create"),
+    ownerUserId: Schema.optional(TrimmedNonEmptyString),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
     threadId: ThreadId,
@@ -3314,6 +3319,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.fork"),
+    ownerUserId: Schema.optional(TrimmedNonEmptyString),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
     sourceThreadId: ThreadId,
@@ -3647,6 +3653,8 @@ export const OrchestrationV2ArchivedShellSnapshot = Schema.Struct({
 export type OrchestrationV2ArchivedShellSnapshot = typeof OrchestrationV2ArchivedShellSnapshot.Type;
 
 export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
+  /** Account ownership is display metadata, not an authorization boundary. */
+  ownerUserId: Schema.optional(TrimmedNonEmptyString),
   commandId: CommandId,
   creationSource: Schema.optional(OrchestrationV2CreationSource),
   threadId: Schema.optional(ThreadId),

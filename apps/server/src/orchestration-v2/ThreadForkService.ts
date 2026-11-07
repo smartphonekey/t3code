@@ -58,6 +58,7 @@ export interface ThreadForkServiceV2Shape {
     readonly canonicalSourcePoint: OrchestrationV2ContextSourcePoint;
     readonly transferId: ContextTransferId;
     readonly targetThreadId: ThreadId;
+    readonly ownerUserId?: string;
     readonly title?: string;
     readonly sideChat?: boolean;
     readonly createdBy: OrchestrationV2Actor;
@@ -103,6 +104,7 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       const { delegatedFrom: _delegatedFrom, ...inherited } = input.sourceProjection.thread;
       const targetThread: OrchestrationV2AppThread = {
         ...inherited,
+        ...(input.ownerUserId === undefined ? {} : { ownerUserId: input.ownerUserId }),
         // PR context follows the conversation; watching remains the source thread's responsibility.
         pullRequests: input.sourceProjection.thread.pullRequests?.map(
           ({ watch: _watch, ...link }) => link,

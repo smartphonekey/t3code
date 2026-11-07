@@ -749,6 +749,7 @@ it.effect("arms durable title generation after accepting the first message", () 
           thread: "thread:launch:title-generation",
           message: "Generate my title",
         }),
+        ownerUserId: "account:alice",
         title: "Generate my title",
         generateTitle: true,
       };
@@ -757,6 +758,7 @@ it.effect("arms durable title generation after accepting the first message", () 
 
       const projection = yield* threads.getThreadProjection(launched.threadId);
       assert.equal(projection.thread.title, "Generate my title");
+      assert.equal(projection.thread.ownerUserId, "account:alice");
       assert.equal(projection.thread.titleRegeneration?.requestId, generationCommandId);
       assert.deepEqual(
         (yield* outbox.listByCommandId(generationCommandId)).map((effect) => effect.request),
