@@ -41,6 +41,9 @@ const isGitCommandError = Schema.is(GitCommandError);
 export class SourceControlRepositoryService extends Context.Service<
   SourceControlRepositoryService,
   {
+    readonly searchRepositories: (
+      input: SourceControlRepositoryLookupInput,
+    ) => Effect.Effect<ReadonlyArray<SourceControlRepositoryInfo>, SourceControlRepositoryError>;
     readonly lookupRepository: (
       input: SourceControlRepositoryLookupInput,
     ) => Effect.Effect<SourceControlRepositoryInfo, SourceControlRepositoryError>;
@@ -92,7 +95,8 @@ function mapRepositoryError(operation: string, provider: SourceControlProviderKi
           provider,
           detail:
             (isSourceControlProviderError(cause)
-              ? SourceControlProvider.userFacingSourceControlDetail(cause.cause)
+              ? (SourceControlProvider.userFacingSourceControlDetail(cause) ??
+                SourceControlProvider.userFacingSourceControlDetail(cause.cause))
               : undefined) ?? "The source control operation could not be completed.",
           cause,
         }),
@@ -234,6 +238,23 @@ export const make = Effect.gen(function* () {
     },
     // Someone adding or cloning a repository is waiting, so a background rate-limit pause must not
     // refuse the lookup.
+    Effect.provideService(SourceControlRateLimit.Interactive, true),
+  );
+
+  const searchRepositories = Effect.fn("SourceControlRepositoryService.searchRepositories")(
+    function* (input: SourceControlRepositoryLookupInput) {
+      const providerKind = yield* ensureConcreteProvider({
+        operation: "searchRepositories",
+        provider: input.provider,
+      });
+      const provider = yield* providers.get(providerKind);
+      if (!provider.searchRepositories) return [yield* lookupRepository(input)];
+      const results = yield* provider.searchRepositories({
+        cwd: input.cwd ?? config.cwd,
+        repository: input.repository.trim(),
+      });
+      return results.map((urls) => toRepositoryInfo(providerKind, urls));
+    },
     Effect.provideService(SourceControlRateLimit.Interactive, true),
   );
 
@@ -553,6 +574,11 @@ export const make = Effect.gen(function* () {
 
   // Forwarders retain the underlying operation spans.
   return SourceControlRepositoryService.of({
+    searchRepositories: Effect.fnUntraced(function* (input) {
+      return yield* searchRepositories(input).pipe(
+        mapRepositoryError("searchRepositories", input.provider),
+      );
+    }),
     lookupRepository: Effect.fnUntraced(function* (input) {
       return yield* lookupRepository(input).pipe(
         mapRepositoryError("lookupRepository", input.provider),

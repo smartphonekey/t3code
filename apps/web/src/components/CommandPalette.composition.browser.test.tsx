@@ -6,6 +6,8 @@ import { act, render } from "../../test/render";
 import { CommandPalette } from "./CommandPalette";
 import { openCommandPalette } from "../commandPaletteBus";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { sourceControlEnvironment } from "../state/sourceControl";
+import { SourceControlProviderKind } from "@t3tools/contracts";
 
 vi.mock("@effect/atom-react", async (original) => ({
   ...(await original<typeof import("@effect/atom-react")>()),
@@ -42,8 +44,33 @@ vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: () => async () => ({ _tag: "Success", value: undefined }),
 }));
 vi.mock("../state/use-atom-query-runner", () => ({
-  useAtomQueryRunner: () => async () => ({ _tag: "Success", value: undefined }),
+  useAtomQueryRunner: (family: unknown) => async (target: { input: { repository?: string } }) => ({
+    _tag: "Success",
+    value:
+      family !== sourceControlEnvironment.searchRepositories
+        ? undefined
+        : target.input.repository === "t3"
+          ? [
+              {
+                provider: SourceControlProviderKind.make("github"),
+                nameWithOwner: "smartphonekey/t3code",
+                url: "https://github.com/smartphonekey/t3code",
+                sshUrl: "git@github.com:smartphonekey/t3code.git",
+              },
+            ]
+          : [],
+  }),
 }));
+vi.mock("../state/sourceControl", async (original) => {
+  const actual = await original<typeof import("../state/sourceControl")>();
+  return {
+    ...actual,
+    sourceControlEnvironment: {
+      ...actual.sourceControlEnvironment,
+      discovery: () => "source-control-discovery",
+    },
+  };
+});
 vi.mock("../state/environments", async (original) => ({
   ...(await original<typeof import("../state/environments")>()),
   useEnvironments: () => ({
@@ -93,7 +120,22 @@ vi.mock("../state/filesystem", async (original) => ({
 }));
 vi.mock("../state/query", async (original) => ({
   ...(await original<typeof import("../state/query")>()),
-  useEnvironmentQuery: () => ({ data: undefined, isLoading: false }),
+  useEnvironmentQuery: (atom: unknown) => ({
+    data:
+      atom === "source-control-discovery"
+        ? {
+            sourceControlProviders: [
+              {
+                kind: "github",
+                label: "GitHub",
+                status: "available",
+                auth: { status: "authenticated" },
+              },
+            ],
+          }
+        : undefined,
+    isLoading: false,
+  }),
 }));
 vi.mock("./settings/useAvailableSettingsSearchItems", () => ({
   useAvailableSettingsSearchItems: () => [],
@@ -146,4 +188,23 @@ it("keeps the caret in place when an edit briefly makes the folder path not a pa
   await expect.element(input()).toHaveValue("/workspace/project");
   await userEvent.keyboard("w");
   await expect.element(input()).toHaveValue("/wworkspace/project");
+});
+
+it("selects an organization repository with the keyboard and shows a no-results message", async () => {
+  await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
+  await act(() => openCommandPalette({ open: "add-project" }));
+  await page.getByText("GitHub repository", { exact: true }).click();
+  const input = () => page.getByRole("combobox");
+  await input().fill("missing-repository");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByText("No repositories found.", { exact: true })).toBeVisible();
+  await expect.element(input()).toHaveValue("missing-repository");
+  await input().fill("t3");
+  await expect
+    .element(page.getByText("No repositories found.", { exact: true }))
+    .not.toBeInTheDocument();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("option", { name: /smartphonekey\/t3code/ })).toBeVisible();
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await expect.element(input()).toHaveValue("/workspace/t3code");
 });

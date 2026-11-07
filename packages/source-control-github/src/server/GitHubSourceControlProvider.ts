@@ -330,10 +330,19 @@ export const makeDiscovery = Effect.gen(function* () {
   } satisfies SourceControlManagedCliDiscoverySpec;
 });
 
+const isGitHubApiResponseError = Schema.is(GitHubRequestPolicy.GitHubApiResponseError);
+
 class GitHubFailure extends Schema.TaggedError<GitHubFailure>()("GitHubFailure", {
   detail: Schema.String,
   cause: Schema.Defect(),
-}) {}
+}) {
+  get userFacingDetail(): string {
+    if (isGitHubApiResponseError(this.cause)) {
+      return `GitHub returned HTTP ${this.cause.status}.`;
+    }
+    return this.detail;
+  }
+}
 
 const failure = (detail: string, cause?: unknown) => new GitHubFailure({ detail, cause });
 
@@ -384,6 +393,7 @@ const RawRepositorySchema = Schema.Struct({
   default_branch: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const decodeRawRepository = decodeJsonResult(RawRepositorySchema);
+const decodeRepositories = decodeJsonResult(Schema.Array(RawRepositorySchema));
 
 function repositoryCloneUrls(
   raw: Schema.Schema.Type<typeof RawRepositorySchema>,
@@ -829,6 +839,7 @@ export const make = Effect.gen(function* () {
               ),
             }),
         detail: error.detail,
+        userFacingDetail: error.userFacingDetail,
         cause: error.cause,
       });
 
@@ -1007,6 +1018,67 @@ export const make = Effect.gen(function* () {
             providerError("createChangeRequest", input.cwd, { reference: input.headSelector }),
           ),
         ),
+    ),
+    searchRepositories: Effect.fn("GitHubSourceControlProvider.searchRepositories")(
+      function* (input) {
+        const host = (
+          input.host ??
+          (yield* resolveRepository(input).pipe(
+            Effect.map((locator) => locator.host),
+            Effect.orElseSucceed(() => environment.GH_HOST ?? "github.com"),
+          ))
+        ).toLowerCase();
+        const query = input.repository.trim().replace(/\.git$/i, "");
+        const locator = parseGitHubRepositorySelector(input.repository, host);
+        if (locator !== null) {
+          const response = yield* api
+            .rest({
+              host: locator.host,
+              operation: "getRepository",
+              path: `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}`,
+              allowReserve: true,
+            })
+            .pipe(
+              Effect.catchTags({ GitHubApiNotFoundError: () => Effect.succeed(null) }),
+              Effect.mapError((error) => fromGitHubApiError(error, REPOSITORY_NOT_FOUND)),
+            );
+          if (response === null) return [];
+          const decoded = decodeRawRepository(response.body);
+          if (Result.isFailure(decoded)) {
+            return yield* failure("GitHub returned an invalid repository.", decoded.failure);
+          }
+          return [repositoryCloneUrls(decoded.success)];
+        }
+        if (!/^[\w.-]+$/.test(query)) return [];
+
+        const repositories: SourceControlRepositoryCloneUrls[] = [];
+        let page = 1;
+        while (true) {
+          const response = yield* rest({
+            host,
+            operation: "searchRepositories",
+            path: `user/repos?affiliation=owner,collaborator,organization_member&per_page=100&page=${page}`,
+            allowReserve: true,
+          });
+          const decoded = decodeRepositories(response.body);
+          if (Result.isFailure(decoded)) {
+            return yield* failure("GitHub returned an invalid repository list.", decoded.failure);
+          }
+          for (const repository of decoded.success) {
+            const name = repository.full_name.split("/").at(-1)!;
+            if (name.toLowerCase().includes(query.toLowerCase())) {
+              repositories.push(repositoryCloneUrls(repository));
+            }
+          }
+          if (!/<[^>]+>;\s*rel="next"/.test(response.headers.link ?? "")) break;
+          page++;
+        }
+        return repositories.sort((left, right) =>
+          left.nameWithOwner.localeCompare(right.nameWithOwner),
+        );
+      },
+      (effect, input) =>
+        effect.pipe(Effect.mapError(providerError("searchRepositories", input.cwd))),
     ),
     getRepositoryCloneUrls: Effect.fn("GitHubSourceControlProvider.getRepositoryCloneUrls")(
       function* (input) {

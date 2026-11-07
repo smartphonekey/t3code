@@ -1,4 +1,5 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
+import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -621,10 +622,157 @@ describe("GitHubSourceControlProvider writes", () => {
       for (const repository of ["me/", "/notes", "a/b/c/d", "", "two words"]) {
         const error = yield* Effect.flip(gh.getRepositoryCloneUrls({ cwd: "/repo", repository }));
         assert.include(error.message, "Repositories are named owner/name.");
+        assert.strictEqual(
+          SourceControlProvider.userFacingSourceControlDetail(error),
+          "Repositories are named owner/name.",
+        );
       }
       assert.strictEqual(requests.length, 2);
     });
   });
+
+  it.effect("searches personal, collaborator and organization repositories across pages", () => {
+    const requests: string[] = [];
+    const repository = (full_name: string) => ({
+      full_name,
+      html_url: `https://github.com/${full_name}`,
+      ssh_url: `git@github.com:${full_name}.git`,
+    });
+    return Effect.gen(function* () {
+      const gh = yield* makeProvider({
+        rest: (input) =>
+          Effect.sync(() => {
+            requests.push(input.path);
+            const page = new URL(input.path, "https://api.github.com/").searchParams.get("page");
+            return page === "1"
+              ? {
+                  ...restResponse([repository("me/t3-tools"), repository("me/other")]),
+                  headers: { link: '<https://api.github.com/user/repos?page=2>; rel="next"' },
+                }
+              : restResponse([repository("smartphonekey/t3code"), repository("friend/t3code")]);
+          }),
+      });
+      const results = yield* gh.searchRepositories!({ cwd: "/repo", repository: "T3" });
+      assert.deepStrictEqual(
+        results.map((result) => result.nameWithOwner),
+        ["friend/t3code", "me/t3-tools", "smartphonekey/t3code"],
+      );
+      assert.strictEqual(requests.length, 2);
+      for (const path of requests) {
+        const url = new URL(path, "https://api.github.com/");
+        assert.strictEqual(url.pathname, "/user/repos");
+        assert.strictEqual(
+          url.searchParams.get("affiliation"),
+          "owner,collaborator,organization_member",
+        );
+      }
+      assert.deepStrictEqual(
+        yield* gh.searchRepositories!({ cwd: "/repo", repository: "no-match" }),
+        [],
+      );
+      const exact = yield* makeProvider({
+        rest: (input) => {
+          assert.strictEqual(input.host, "code.example.test");
+          assert.strictEqual(input.path, "repos/smartphonekey/t3code");
+          return Effect.succeed(restResponse(repository("smartphonekey/t3code")));
+        },
+      });
+      for (const selector of [
+        "smartphonekey/t3code",
+        "https://code.example.test/smartphonekey/t3code.git",
+      ]) {
+        const results = yield* exact.searchRepositories!({
+          cwd: "/repo",
+          host: "code.example.test",
+          repository: selector,
+        });
+        assert.deepStrictEqual(
+          results.map((result) => result.nameWithOwner),
+          ["smartphonekey/t3code"],
+        );
+      }
+    });
+  });
+
+  it.effect(
+    "returns no results for missing or invalid repositories but preserves real failures",
+    () => {
+      const requests: string[] = [];
+      return Effect.gen(function* () {
+        const gh = yield* makeProvider({
+          rest: (input) => {
+            requests.push(input.path);
+            return Effect.fail(
+              new GitHubRequestPolicy.GitHubApiNotFoundError({
+                host: input.host,
+                operation: input.operation,
+              }),
+            );
+          },
+        });
+        assert.deepStrictEqual(
+          yield* gh.searchRepositories!({ cwd: "/repo", repository: "org/missing" }),
+          [],
+        );
+        for (const repository of ["", "two words", "a/b/c/d", "org/"]) {
+          assert.deepStrictEqual(yield* gh.searchRepositories!({ cwd: "/repo", repository }), []);
+        }
+        assert.deepStrictEqual(requests, ["repos/org/missing"]);
+
+        const offline = yield* makeProvider({
+          rest: (input) =>
+            Effect.fail(
+              new GitHubRequestPolicy.GitHubApiRequestError({
+                host: input.host,
+                operation: input.operation,
+                cause: new Error("offline"),
+              }),
+            ),
+        });
+        const error = yield* Effect.flip(
+          offline.searchRepositories!({ cwd: "/repo", repository: "t3code" }),
+        );
+        assert.strictEqual(
+          SourceControlProvider.userFacingSourceControlDetail(error),
+          "Could not reach GitHub at github.com.",
+        );
+        const refused = yield* makeProvider({
+          rest: (input) =>
+            Effect.fail(
+              new GitHubRequestPolicy.GitHubApiAuthenticationError({
+                host: input.host,
+                operation: input.operation,
+              }),
+            ),
+        });
+        const authError = yield* Effect.flip(
+          refused.searchRepositories!({ cwd: "/repo", repository: "t3code" }),
+        );
+        assert.strictEqual(
+          SourceControlProvider.userFacingSourceControlDetail(authError),
+          "GitHub is not authenticated. Run `gh auth login` (or set GH_TOKEN) and retry.",
+        );
+        const upstream = yield* makeProvider({
+          rest: (input) =>
+            Effect.fail(
+              new GitHubRequestPolicy.GitHubApiResponseError({
+                host: input.host,
+                operation: input.operation,
+                status: 500,
+                githubErrors: ["<html>internal token=abc</html>"],
+              }),
+            ),
+        });
+        const upstreamError = yield* Effect.flip(
+          upstream.searchRepositories!({ cwd: "/repo", repository: "t3code" }),
+        );
+        assert.strictEqual(
+          SourceControlProvider.userFacingSourceControlDetail(upstreamError),
+          "GitHub returned HTTP 500.",
+        );
+      });
+    },
+  );
 });
 
 describe("GitHubSourceControlProvider.checkoutChangeRequest", () => {

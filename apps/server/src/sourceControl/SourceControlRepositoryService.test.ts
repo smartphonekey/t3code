@@ -102,7 +102,7 @@ function layer(input: {
     : layerService.pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 }
 
-const lookupFailingWith = (cause: unknown, detail: string) =>
+const lookupFailingWith = (cause: unknown, detail: string, userFacingDetail?: string) =>
   Effect.gen(function* () {
     const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
     return yield* service
@@ -119,6 +119,7 @@ const lookupFailingWith = (cause: unknown, detail: string) =>
                 operation: "getRepositoryCloneUrls",
                 cwd: input.cwd,
                 detail,
+                ...(userFacingDetail === undefined ? {} : { userFacingDetail }),
                 cause,
               }),
             ),
@@ -134,6 +135,15 @@ it.effect("tells the user a host's fixed explanation of a failed repository look
       "Repositories are named workspace/repository.",
     );
     assert.strictEqual(error.detail, "Repositories are named workspace/repository.");
+    const githubError = yield* lookupFailingWith(
+      new Error("upstream"),
+      "Repository not found. Check the owner and name and try again.",
+      "Repository not found. Check the owner and name and try again.",
+    );
+    assert.strictEqual(
+      githubError.detail,
+      "Repository not found. Check the owner and name and try again.",
+    );
   }),
 );
 
