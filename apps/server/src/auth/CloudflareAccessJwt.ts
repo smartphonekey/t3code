@@ -29,6 +29,8 @@ export const CloudflareAccessJwtClaims = Schema.Struct({
   type: Schema.optionalKey(Schema.String),
   identity_nonce: Schema.optionalKey(Schema.String),
   service_token_id: Schema.optionalKey(Schema.String),
+  gateway_token_id: Schema.optionalKey(Schema.String),
+  auth_status: Schema.optionalKey(Schema.String),
 });
 export type CloudflareAccessJwtClaims = typeof CloudflareAccessJwtClaims.Type;
 
@@ -58,11 +60,14 @@ function cloudflareAccessJwksUrl(teamDomain: string): string | null {
 export const isHumanCloudflareAccessIdentity = (claims: CloudflareAccessJwtClaims): boolean => {
   if (claims.sub.trim().length === 0) return false;
   if (claims.common_name !== undefined && claims.common_name.trim().length > 0) return false;
-  if (claims.service_token_id !== undefined && claims.service_token_id.trim().length > 0) {
+  if (claims.service_token_id !== undefined || claims.gateway_token_id !== undefined) {
     return false;
   }
+  // Both human and service application tokens use type "app"; machine claims distinguish them.
   const type = claims.type?.trim().toLowerCase();
-  if (type === "service_token" || type === "non_identity") return false;
+  if (type === "service-token" || type === "service_token" || type === "non_identity") return false;
+  const authStatus = claims.auth_status?.trim().toLowerCase();
+  if (authStatus === "none" || authStatus === "non_identity") return false;
   return true;
 };
 
@@ -83,6 +88,11 @@ export const verifyCloudflareAccessJwt = Effect.fn("verifyCloudflareAccessJwt")(
   readonly jwksUrl?: string;
   readonly fixedJwks?: Jwks.KeySet;
 }) {
+  const team = normalizeCloudflareAccessTeamDomain(input.teamDomain);
+  if (team === null || input.applicationAud.trim().length === 0)
+    return yield* failJwtVerification(
+      "Cloudflare Access team and application audience must be configured.",
+    );
   const http = yield* HttpClient.HttpClient;
   let keySet: { readonly keys: Jwks.KeySet; readonly expiresAt: number } | undefined;
 
@@ -115,9 +125,10 @@ export const verifyCloudflareAccessJwt = Effect.fn("verifyCloudflareAccessJwt")(
       Effect.flatMap((jwks) =>
         Jwt.verifyWithKeySet(CloudflareAccessJwtClaims, input.token, {
           algorithms: ["RS256", "ES256"],
-          audience: input.applicationAud,
+          issuer: `https://${team}`,
+          audience: input.applicationAud.trim(),
           clockTolerance: "60 seconds",
-          requiredClaims: ["exp", "sub", "aud"],
+          requiredClaims: ["exp", "sub", "aud", "iss"],
         }).pipe(Effect.provideService(Jwks.Jwks, jwks)),
       ),
       Effect.flatMap((verified) => {

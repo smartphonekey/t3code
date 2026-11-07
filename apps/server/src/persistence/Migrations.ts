@@ -87,6 +87,8 @@ import Migration0081 from "./Migrations/081_AuthCloudflareAccessIdentities.ts";
 import Migration0082 from "./Migrations/082_AuthSessionCloudflareAccessIdentity.ts";
 import Migration0083 from "./Migrations/083_ScheduledTaskBillingUser.ts";
 
+import Migration0084 from "./Migrations/084_CloudflareAccessIdentityScopes.ts";
+
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
@@ -172,6 +174,7 @@ const migrationEntries = [
   [81, "AuthCloudflareAccessIdentities", Migration0081],
   [82, "AuthSessionCloudflareAccessIdentity", Migration0082],
   [83, "ScheduledTaskBillingUser", Migration0083],
+  [84, "CloudflareAccessIdentityScopes", Migration0084],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

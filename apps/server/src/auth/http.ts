@@ -287,13 +287,13 @@ export const layer = HttpApiBuilder.group(
             if (
               !result.authenticated &&
               credential === undefined &&
-              result.sessionMethod === undefined &&
-              Option.isSome(cloudflareAccess)
+              result.sessionMethod === undefined
             ) {
-              const resumed = yield* cloudflareAccess.value.resumeBrowserSession(
-                request,
-                deriveAuthClientMetadata({ request }),
-              );
+              const resumed =
+                yield* serverAuth.establishBrowserSessionFromCloudflareAccessIfGranted(
+                  request,
+                  deriveAuthClientMetadata({ request }),
+                );
               if (Option.isSome(resumed)) {
                 yield* appendSessionCookie(
                   sessions.cookieName,

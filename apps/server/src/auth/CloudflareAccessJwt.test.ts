@@ -46,7 +46,22 @@ it("rejects service-token shaped Cloudflare Access identities", () => {
   );
   expect(isHumanCloudflareAccessIdentity({ ...humanClaims, type: "service_token" })).toBe(false);
   expect(isHumanCloudflareAccessIdentity({ ...humanClaims, type: "non_identity" })).toBe(false);
+  for (const extra of [
+    { type: "app", sub: "", common_name: "service.access" },
+    { type: "service-token" },
+    { gateway_token_id: "gateway" },
+    { auth_status: "non_identity" },
+    { auth_status: "none" },
+  ])
+    expect(isHumanCloudflareAccessIdentity({ ...humanClaims, ...extra })).toBe(false);
   expect(isHumanCloudflareAccessIdentity(humanClaims)).toBe(true);
+  expect(
+    isHumanCloudflareAccessIdentity({
+      ...humanClaims,
+      type: "app",
+      identity_nonce: "human-identity",
+    }),
+  ).toBe(true);
 });
 
 const layerHttpClient = Layer.succeed(
@@ -69,6 +84,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer, layerHttpC
           aud: AUD,
           sub: SUB,
           email: "person@example.com",
+          type: "app",
         });
         const claims = yield* verifyCloudflareAccessJwt({
           token,
@@ -80,23 +96,30 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer, layerHttpC
       }),
     );
 
-    it.effect("rejects tokens for the wrong audience", () =>
+    it.effect("rejects a wrong audience, issuer, or signing key", () =>
       Effect.gen(function* () {
         const { privatePem, kid, jwks } = yield* testKeyMaterial;
-        const token = generateCloudflareAccessTestJwt({
-          privateKeyPem: privatePem,
-          kid,
-          teamDomain: TEAM,
-          aud: "other-aud",
-          sub: SUB,
-        });
-        const error = yield* verifyCloudflareAccessJwt({
-          token,
-          teamDomain: TEAM,
-          applicationAud: AUD,
-          fixedJwks: jwks as unknown as Jwks.KeySet,
-        }).pipe(Effect.flip);
-        expect(error).toBeInstanceOf(Error);
+        const other = yield* testKeyMaterial;
+        for (const input of [
+          { teamDomain: TEAM, aud: "other-aud", keys: jwks },
+          { teamDomain: "other.cloudflareaccess.com", aud: AUD, keys: jwks },
+          { teamDomain: TEAM, aud: AUD, keys: other.jwks },
+        ]) {
+          const token = generateCloudflareAccessTestJwt({
+            privateKeyPem: privatePem,
+            kid,
+            teamDomain: input.teamDomain,
+            aud: input.aud,
+            sub: SUB,
+          });
+          const error = yield* verifyCloudflareAccessJwt({
+            token,
+            teamDomain: TEAM,
+            applicationAud: AUD,
+            fixedJwks: input.keys as unknown as Jwks.KeySet,
+          }).pipe(Effect.flip);
+          expect(error).toBeInstanceOf(Error);
+        }
       }),
     );
   },

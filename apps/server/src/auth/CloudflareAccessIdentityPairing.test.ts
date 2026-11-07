@@ -38,10 +38,10 @@ const { privatePem, kid, jwks } = (() => {
   };
 })();
 
-const makeAccessRequest = (token: string | null) =>
+const makeAccessRequest = (token: string | null, extraHeaders: Record<string, string> = {}) =>
   ({
     cookies: {},
-    headers: token ? { [CF_ACCESS_JWT_HEADER]: token } : {},
+    headers: token ? { ...extraHeaders, [CF_ACCESS_JWT_HEADER]: token } : extraHeaders,
   }) as Parameters<
     CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing["Service"]["resumeBrowserSession"]
   >[0];
@@ -80,6 +80,7 @@ const signedHumanToken = generateCloudflareAccessTestJwt({
   aud: AUD,
   sub: SUB,
   email: "human@example.com",
+  type: "app",
 });
 
 const serviceToken = generateCloudflareAccessTestJwt({
@@ -87,8 +88,9 @@ const serviceToken = generateCloudflareAccessTestJwt({
   kid,
   teamDomain: TEAM,
   aud: AUD,
-  sub: "service-subject",
-  common_name: "ci-bot",
+  sub: "",
+  common_name: "ci-bot.access",
+  type: "app",
 });
 
 it.layer(
@@ -111,6 +113,13 @@ it.layer(
         deviceType: "desktop",
       });
       expect(Option.isNone(badResume)).toBe(true);
+      const forgedEmail = yield* pairing.verifyRequestIdentity(
+        makeAccessRequest(null, {
+          "cf-access-authenticated-user-email": "forged@example.com",
+        }),
+      );
+      expect(Option.isNone(forgedEmail)).toBe(true);
+
       const serviceResume = yield* pairing.resumeBrowserSession(makeAccessRequest(serviceToken), {
         deviceType: "desktop",
       });
@@ -136,16 +145,16 @@ it.layer(
       const first = yield* sessions.issue({
         method: "browser-session-cookie",
         subject: "paired-browser",
-        scopes: AuthStandardClientScopes,
+        scopes: ["orchestration:read"],
         client: { deviceType: "desktop" },
       });
       yield* pairing.recordPairing(request, first.sessionId);
       const resumed = yield* pairing.resumeBrowserSession(request, { deviceType: "mobile" });
       expect(Option.isSome(resumed)).toBe(true);
-      expect(Option.isSome(resumed)).toBe(true);
       if (Option.isSome(resumed)) {
         expect(resumed.value.response.authenticated).toBe(true);
-        expect(resumed.value.response.scopes).toContain("access:read");
+        expect(resumed.value.response.scopes).toEqual(["orchestration:read"]);
+        expect((yield* sessions.verify(resumed.value.sessionToken)).subject).toBe("paired-browser");
       }
     }).pipe(Effect.provide(layerBase(true))),
   );

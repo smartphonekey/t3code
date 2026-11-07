@@ -1,5 +1,4 @@
 import {
-  AuthStandardClientScopes,
   type AuthBrowserSessionResult,
   type AuthClientMetadata,
   type AuthSessionId,
@@ -162,12 +161,16 @@ const make = Effect.gen(function* () {
     if (Option.isNone(identity)) {
       return;
     }
+    const pairedSession = yield* authSessions.getById({ sessionId });
+    if (Option.isNone(pairedSession)) return;
     const pairedAt = DateTime.toUtc(yield* DateTime.now);
     yield* identities.upsert({
       identityKey: identity.value.identityKey,
       subject: identity.value.subject,
       email: identity.value.email ?? null,
       pairedAt,
+      scopes: pairedSession.value.scopes,
+      sessionSubject: pairedSession.value.subject,
     });
     yield* bindSessionToIdentity(sessionId, identity.value.identityKey);
   }, mapPairingError);
@@ -179,13 +182,13 @@ const make = Effect.gen(function* () {
         return Option.none();
       }
       const existing = yield* identities.getByIdentityKey({ key: identity.value.identityKey });
-      if (Option.isNone(existing)) {
+      if (Option.isNone(existing) || existing.value.scopes.length === 0) {
         return Option.none();
       }
       const session = yield* sessions.issue({
         method: "browser-session-cookie",
-        subject: "cloudflare-access-identity",
-        scopes: AuthStandardClientScopes,
+        subject: existing.value.sessionSubject,
+        scopes: existing.value.scopes,
         cloudflareAccessIdentityKey: identity.value.identityKey,
         client: {
           ...client,

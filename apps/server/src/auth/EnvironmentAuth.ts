@@ -459,6 +459,13 @@ export class EnvironmentAuth extends Context.Service<
     readonly getSessionState: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthSessionState, ServerAuthInternalError>;
+    readonly establishBrowserSessionFromCloudflareAccessIfGranted: (
+      request: HttpServerRequest.HttpServerRequest,
+      requestMetadata: AuthClientMetadata,
+    ) => Effect.Effect<
+      Option.Option<CloudflareAccessIdentityPairing.CloudflareAccessBrowserSessionBootstrap>,
+      ServerAuthInternalError
+    >;
     readonly createBrowserSession: (
       credential: string,
       requestMetadata: AuthClientMetadata,
@@ -776,6 +783,14 @@ export const make = Effect.gen(function* () {
     ...DESKTOP_RENDERER_ORIGINS,
     ...config.devAllowedOrigins,
   ]);
+
+  const establishBrowserSessionFromCloudflareAccessIfGranted = Effect.fn(
+    "EnvironmentAuth.establishBrowserSessionFromCloudflareAccessIfGranted",
+  )(function* (request: HttpServerRequest.HttpServerRequest, metadata: AuthClientMetadata) {
+    if (Option.isNone(cloudflareAccess) || !isBrowserOriginAllowed(request, trustedBrowserOrigins))
+      return Option.none<CloudflareAccessIdentityPairing.CloudflareAccessBrowserSessionBootstrap>();
+    return yield* cloudflareAccess.value.resumeBrowserSession(request, metadata);
+  });
 
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
@@ -1406,6 +1421,7 @@ export const make = Effect.gen(function* () {
       return Effect.succeed(descriptor);
     }),
     getSessionState,
+    establishBrowserSessionFromCloudflareAccessIfGranted,
     createBrowserSession,
     exchangeBootstrapCredentialForAccessToken,
     createPairingLink,

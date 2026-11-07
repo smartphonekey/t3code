@@ -14,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
+import * as Option from "effect/Option";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -53,7 +54,10 @@ const layerServerConfig = (overrides?: Partial<ServerConfig.ServerConfig["Servic
     }),
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-server-test-" })));
 
-const layerEnvironmentAuth = (overrides?: Partial<ServerConfig.ServerConfig["Service"]>) =>
+const layerEnvironmentAuth = (
+  overrides?: Partial<ServerConfig.ServerConfig["Service"]>,
+  cloudflareLayer = layerCloudflareAccessDisabled,
+) =>
   EnvironmentAuth.layer.pipe(
     Layer.provide(ManagedPolicy.layerTest()),
     Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -61,7 +65,7 @@ const layerEnvironmentAuth = (overrides?: Partial<ServerConfig.ServerConfig["Ser
     Layer.provide(ServerEnvironment.layerIdentity),
     Layer.provide(ServerSettings.layerTest()),
     Layer.provide(layerServerConfig(overrides)),
-    Layer.provideMerge(layerCloudflareAccessDisabled),
+    Layer.provideMerge(cloudflareLayer),
   );
 
 const makeCookieRequest = (
@@ -704,7 +708,38 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
           headers: { host: "localhost:13773", origin: "http://localhost:3000" },
         } as never);
         expect(state.authenticated).toBe(false);
-      }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web" }))),
+        for (const [origin, expected] of [
+          ["http://localhost:13773", true],
+          ["http://localhost:3000", false],
+        ] as const) {
+          const resumed = yield* serverAuth.establishBrowserSessionFromCloudflareAccessIfGranted(
+            {
+              cookies: {},
+              headers: { host: "localhost:13773", origin },
+            } as never,
+            requestMetadata,
+          );
+          expect(Option.isSome(resumed)).toBe(expected);
+        }
+      }).pipe(
+        Effect.provide(
+          layerEnvironmentAuth(
+            { mode: "web" },
+            Layer.mock(CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing)({
+              resumeBrowserSession: () =>
+                Effect.succeedSome({
+                  response: {
+                    authenticated: true,
+                    ...authScopeResponse(["orchestration:read"]),
+                    sessionMethod: "browser-session-cookie",
+                    expiresAt: DateTime.toUtc(DateTime.makeUnsafe("2100-01-01T00:00:00Z")),
+                  },
+                  sessionToken: "verified-access-session",
+                } as const),
+            }),
+          ),
+        ),
+      ),
     );
 
     it.effect.each(["Bearer", "bearer", "bEaReR"])(

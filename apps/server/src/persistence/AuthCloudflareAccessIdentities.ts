@@ -1,3 +1,4 @@
+import { AuthEnvironmentScopes } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -13,6 +14,8 @@ export const AuthCloudflareAccessIdentityRecord = Schema.Struct({
   subject: Schema.String,
   email: Schema.NullOr(Schema.String),
   pairedAt: Schema.DateTimeUtcFromString,
+  scopes: Schema.fromJsonString(AuthEnvironmentScopes),
+  sessionSubject: Schema.String,
 });
 export type AuthCloudflareAccessIdentityRecord = typeof AuthCloudflareAccessIdentityRecord.Type;
 
@@ -21,6 +24,8 @@ export const UpsertAuthCloudflareAccessIdentityInput = Schema.Struct({
   subject: Schema.String,
   email: Schema.NullOr(Schema.String),
   pairedAt: Schema.DateTimeUtcFromString,
+  scopes: AuthEnvironmentScopes,
+  sessionSubject: Schema.String,
 });
 export type UpsertAuthCloudflareAccessIdentityInput =
   typeof UpsertAuthCloudflareAccessIdentityInput.Type;
@@ -66,7 +71,9 @@ const make = Effect.gen(function* () {
           identity_key AS identityKey,
           subject,
           email,
-          paired_at AS pairedAt
+          paired_at AS pairedAt,
+          scopes_json AS scopes,
+          session_subject AS sessionSubject
         FROM auth_cloudflare_access_identities
         WHERE identity_key = ${input.key}
       `,
@@ -89,17 +96,23 @@ const make = Effect.gen(function* () {
           identity_key,
           subject,
           email,
-          paired_at
+          paired_at,
+          scopes_json,
+          session_subject
         ) VALUES (
           ${input.identityKey},
           ${input.subject},
           ${input.email},
-          ${input.pairedAt}
+          ${input.pairedAt},
+          ${JSON.stringify(input.scopes)},
+          ${input.sessionSubject}
         )
         ON CONFLICT(identity_key) DO UPDATE SET
           subject = excluded.subject,
           email = excluded.email,
-          paired_at = excluded.paired_at
+          paired_at = excluded.paired_at,
+          scopes_json = excluded.scopes_json,
+          session_subject = excluded.session_subject
       `,
   });
 
