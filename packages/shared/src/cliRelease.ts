@@ -3,8 +3,23 @@ import * as Schema from "effect/Schema";
 
 import { compareSemverVersions } from "./semver.ts";
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
-export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
+export const CLI_RELEASE_REPOSITORY_ENV = "T3CODE_RELEASE_REPOSITORY";
+const DEFAULT_CLI_RELEASE_REPOSITORY = "smartphonekey/t3code";
+
+/** GitHub `owner/repo` that publishes CLI archives and the release index the updater reads. */
+export function cliReleaseRepository(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const configured = env[CLI_RELEASE_REPOSITORY_ENV]?.trim();
+  return configured || DEFAULT_CLI_RELEASE_REPOSITORY;
+}
+
+export function cliReleasesPageUrl(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return `https://github.com/${cliReleaseRepository(env)}/releases`;
+}
+
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
 
@@ -41,13 +56,20 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
   return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
 }
 
-const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
+function cliReleaseDefaultDownloadBase(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return `https://github.com/${cliReleaseRepository(env)}/releases/download`;
+}
 
 export function cliReleaseDownloadBaseUrl(
   version: string,
-  baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,
+  baseUrl?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  return `${(baseUrl?.trim() || CLI_RELEASE_DEFAULT_BASE_URL).replace(/\/+$/, "")}/v${version}`;
+  const resolvedBase =
+    baseUrl?.trim() || env[CLI_RELEASE_BASE_URL_ENV]?.trim() || cliReleaseDefaultDownloadBase(env);
+  return `${resolvedBase.replace(/\/+$/, "")}/v${version}`;
 }
 
 /** `segments` added to `baseUrl`'s path, keeping its query, such as a signed mirror URL's token. */
@@ -61,9 +83,12 @@ export function releaseAssetUrl(baseUrl: string, ...segments: ReadonlyArray<stri
 export function cliReleaseAssetUrl(
   version: string,
   fileName: string,
-  baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,
+  baseUrl?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  return releaseAssetUrl(baseUrl?.trim() || CLI_RELEASE_DEFAULT_BASE_URL, `v${version}`, fileName);
+  const resolvedBase =
+    baseUrl?.trim() || env[CLI_RELEASE_BASE_URL_ENV]?.trim() || cliReleaseDefaultDownloadBase(env);
+  return releaseAssetUrl(resolvedBase, `v${version}`, fileName);
 }
 
 export function parseChecksums(text: string): ReadonlyMap<string, string> {
@@ -131,8 +156,11 @@ export function acceptsTrackSwitchRelease(
 }
 
 /** Page until the channel matches; nightlies can push preview/stable releases past the first page. */
-export function cliReleaseIndexPageUrl(page: number): string {
-  return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
+export function cliReleaseIndexPageUrl(
+  page: number,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return `https://api.github.com/repos/${cliReleaseRepository(env)}/releases?per_page=100&page=${page}`;
 }
 
 /** Draft assets are not downloadable. */
