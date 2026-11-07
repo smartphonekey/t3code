@@ -1,3 +1,4 @@
+import { RequestAccount } from "../auth/RequestAccount.ts";
 import { CommandId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -314,6 +315,9 @@ export const layerExecutor: Layer.Layer<
                           : { senderThreadId: message.senderThreadId }),
                       })
                       .pipe(
+                        Effect.provideService(RequestAccount, {
+                          userId: run.requesterUserId ?? null,
+                        }),
                         // A disabled instance cannot retry this completed turn; its result stands.
                         Effect.catchTags({
                           ThreadManagementProviderInstanceDisabledError: (disabledError) =>

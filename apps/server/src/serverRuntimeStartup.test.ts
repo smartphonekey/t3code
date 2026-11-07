@@ -1,3 +1,4 @@
+import { RequestAccount } from "./auth/RequestAccount.ts";
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
@@ -264,13 +265,18 @@ it.effect("queues commands until startup signals readiness", () =>
       const gate = yield* ServerRuntimeStartup.makeCommandGate;
       const count = yield* Ref.make(0);
       const queued = yield* gate
-        .enqueueCommand(Ref.updateAndGet(count, (value) => value + 1))
-        .pipe(Effect.forkScoped);
+        .enqueueCommand(
+          Effect.all({
+            count: Ref.updateAndGet(count, (value) => value + 1),
+            account: RequestAccount,
+          }),
+        )
+        .pipe(Effect.provideService(RequestAccount, { userId: "bob" }), Effect.forkScoped);
 
       yield* Effect.yieldNow;
       assert.equal(yield* Ref.get(count), 0);
       yield* gate.signalCommandReady;
-      assert.equal(yield* Fiber.join(queued), 1);
+      assert.deepEqual(yield* Fiber.join(queued), { count: 1, account: { userId: "bob" } });
     }),
   ),
 );
