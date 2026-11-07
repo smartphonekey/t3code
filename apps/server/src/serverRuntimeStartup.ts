@@ -122,10 +122,11 @@ export const makeCommandGate = Effect.gen(function* () {
       return yield* readinessState;
     }
 
+    const context = yield* Effect.context<never>();
     const result = yield* Deferred.make<A, E | ServerRuntimeStartupError>();
     yield* Queue.offer(commandQueue, {
       run: Deferred.await(commandReady).pipe(
-        Effect.flatMap(() => effect),
+        Effect.flatMap(() => effect.pipe(Effect.provideContext(context))),
         Effect.exit,
         Effect.flatMap((exit) => settleQueuedCommand(result, exit)),
       ),

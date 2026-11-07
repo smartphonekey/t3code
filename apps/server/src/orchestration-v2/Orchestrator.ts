@@ -2947,9 +2947,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const account = yield* RequestAccount;
+    const ownerUserId = command.ownerUserId ?? account?.userId;
     const thread: OrchestrationV2AppThread = {
       ...(account === undefined ? {} : { billingUserId: account.userId }),
-      ...(command.ownerUserId === undefined ? {} : { ownerUserId: command.ownerUserId }),
+      ...(ownerUserId == null ? {} : { ownerUserId }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,

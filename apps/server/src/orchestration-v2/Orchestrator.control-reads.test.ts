@@ -1,3 +1,4 @@
+import { RequestAccount } from "../auth/RequestAccount.ts";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -1059,31 +1060,35 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const reactor = yield* DelegatedTaskQuestionReactor.DelegatedTaskQuestionReactor;
     const parentThreadId = ThreadId.make("thread:question-parent");
-    yield* orchestrator.dispatch({
-      type: "thread.create",
-      commandId: CommandId.make("create-question-parent"),
-      threadId: parentThreadId,
-      projectId: ProjectId.make("project:question"),
-      title: "Parent",
-      modelSelection,
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      branch: null,
-      worktreePath: null,
-      createdBy: "user",
-      creationSource: "web",
-    });
-    yield* orchestrator.dispatch({
-      type: "message.dispatch",
-      commandId: CommandId.make("start-question-parent"),
-      threadId: parentThreadId,
-      messageId: MessageId.make("message:question-parent"),
-      text: "Delegate the research",
-      attachments: [],
-      dispatchMode: { type: "start_immediately" },
-      createdBy: "user",
-      creationSource: "web",
-    });
+    yield* orchestrator
+      .dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-question-parent"),
+        threadId: parentThreadId,
+        projectId: ProjectId.make("project:question"),
+        title: "Parent",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      })
+      .pipe(Effect.provideService(RequestAccount, { userId: "alice" }));
+    yield* orchestrator
+      .dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("start-question-parent"),
+        threadId: parentThreadId,
+        messageId: MessageId.make("message:question-parent"),
+        text: "Delegate the research",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      })
+      .pipe(Effect.provideService(RequestAccount, { userId: "bob" }));
     const parentRun = (yield* projections.getThreadProjection(parentThreadId)).runs[0]!;
     yield* orchestrator.dispatch({
       type: "delegated_task.request",
@@ -1189,6 +1194,7 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
       (run) => run.userMessageId === wakes[0]!.id,
     )!;
     assert.equal(wakeRun.status, "queued");
+    assert.equal(wakeRun.requesterUserId, "bob");
     const resolved = {
       ...asyncQuestion,
       id: EventId.make("event:question-resolved"),
