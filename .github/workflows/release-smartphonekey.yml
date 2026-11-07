@@ -176,7 +176,7 @@ jobs:
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
       relay_client_tracing: false
       label: macOS arm64
-      runner: macos-14
+      runner: macos-15
       platform: mac
       target: dmg
       arch: arm64
