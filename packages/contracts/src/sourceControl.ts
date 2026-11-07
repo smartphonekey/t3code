@@ -176,6 +176,8 @@ export class SourceControlProviderError extends Schema.TaggedError<SourceControl
     repository: Schema.optional(Schema.String),
     reference: Schema.optional(Schema.String),
     detail: Schema.String,
+    /** Fixed product text that can be shown without exposing an upstream response. */
+    userFacingDetail: Schema.optionalKey(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {

@@ -117,6 +117,14 @@ export class SourceControlProvider extends Context.Service<
   SourceControlProvider,
   {
     readonly kind: SourceControlProviderKind;
+    readonly searchRepositories?: (input: {
+      readonly cwd: string;
+      readonly repository: string;
+      readonly host?: string;
+    }) => Effect.Effect<
+      ReadonlyArray<SourceControlRepositoryCloneUrls>,
+      SourceControlProviderError
+    >;
     /** The caller verifies owners, so hosts may drop unsupported `owner:branch` selectors. */
     readonly headBranchProbe?: (input: {
       readonly headSelectors: ReadonlyArray<string>;
