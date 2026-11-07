@@ -80,6 +80,7 @@ const signedHumanToken = generateCloudflareAccessTestJwt({
   aud: AUD,
   sub: SUB,
   email: "human@example.com",
+  type: "app",
 });
 
 const serviceToken = generateCloudflareAccessTestJwt({
@@ -87,8 +88,9 @@ const serviceToken = generateCloudflareAccessTestJwt({
   kid,
   teamDomain: TEAM,
   aud: AUD,
-  sub: "service-subject",
-  common_name: "ci-bot",
+  sub: "",
+  common_name: "ci-bot.access",
+  type: "app",
 });
 
 it.layer(

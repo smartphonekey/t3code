@@ -47,7 +47,7 @@ it("rejects service-token shaped Cloudflare Access identities", () => {
   expect(isHumanCloudflareAccessIdentity({ ...humanClaims, type: "service_token" })).toBe(false);
   expect(isHumanCloudflareAccessIdentity({ ...humanClaims, type: "non_identity" })).toBe(false);
   for (const extra of [
-    { type: "app" },
+    { type: "app", sub: "", common_name: "service.access" },
     { type: "service-token" },
     { gateway_token_id: "gateway" },
     { auth_status: "non_identity" },
@@ -55,6 +55,13 @@ it("rejects service-token shaped Cloudflare Access identities", () => {
   ])
     expect(isHumanCloudflareAccessIdentity({ ...humanClaims, ...extra })).toBe(false);
   expect(isHumanCloudflareAccessIdentity(humanClaims)).toBe(true);
+  expect(
+    isHumanCloudflareAccessIdentity({
+      ...humanClaims,
+      type: "app",
+      identity_nonce: "human-identity",
+    }),
+  ).toBe(true);
 });
 
 const layerHttpClient = Layer.succeed(
@@ -77,6 +84,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer, layerHttpC
           aud: AUD,
           sub: SUB,
           email: "person@example.com",
+          type: "app",
         });
         const claims = yield* verifyCloudflareAccessJwt({
           token,
