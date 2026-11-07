@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listeners: new Set<(state: string) => void>(),
   isProtectedDataAvailable: vi.fn<() => Promise<boolean>>(),
   readStorage: vi.fn<() => Promise<void>>(),
+  readSecureStorage: vi.fn<() => Promise<string | null>>(),
 }));
 
 vi.mock("expo", () => ({
@@ -17,6 +18,15 @@ vi.mock("expo", () => ({
       isProtectedDataAvailable: mocks.isProtectedDataAvailable,
     }),
   }),
+}));
+vi.mock("expo-secure-store", () => ({
+  getItemAsync: mocks.readSecureStorage,
+  setItemAsync: async () => {
+    throw new Error("Unexpected keychain write during startup");
+  },
+  deleteItemAsync: async () => {
+    throw new Error("Unexpected keychain delete during startup");
+  },
 }));
 vi.mock("react-native", () => ({
   Platform: {
@@ -70,6 +80,7 @@ beforeEach(() => {
   mocks.listeners.clear();
   mocks.isProtectedDataAvailable.mockReset();
   mocks.readStorage.mockReset().mockResolvedValue(undefined);
+  mocks.readSecureStorage.mockReset().mockResolvedValue(null);
 });
 
 afterEach(async () => {
@@ -94,22 +105,38 @@ describe("protected storage startup", () => {
       mocks.readStorage.mockImplementation(async () => {
         if (mocks.appState !== "active") throw new Error("User interaction is not allowed.");
       });
+      mocks.readSecureStorage.mockImplementation(async () => {
+        if (mocks.appState !== "active") throw new Error("Keychain unavailable while locked");
+        return null;
+      });
       ({ runtime } = await import("./runtime"));
       const startup = runtime.runPromiseExit(Effect.succeed("ready"));
 
       // A missing gate finishes startup with a cached storage failure instead.
       await Promise.race([mocks.subscribed.promise, startup]);
       expect(mocks.readStorage).not.toHaveBeenCalled();
+      expect(mocks.readSecureStorage).not.toHaveBeenCalled();
       mocks.appState = "inactive";
       for (const listener of mocks.listeners) listener("inactive");
       await Promise.resolve();
       expect(mocks.readStorage).not.toHaveBeenCalled();
+      expect(mocks.readSecureStorage).not.toHaveBeenCalled();
 
       mocks.appState = "active";
       for (const listener of mocks.listeners) listener("active");
       expect(await startup).toMatchObject({ _tag: "Success", value: "ready" });
       expect(await runtime.runPromise(Effect.succeed("still ready"))).toBe("still ready");
       expect(mocks.readStorage).toHaveBeenCalledOnce();
+      const { ClientCapabilities } = await import("@t3tools/client-runtime/platform");
+      expect(
+        await runtime.runPromiseExit(
+          Effect.flatMap(ClientCapabilities.CloudflareAccessGateway, (gateway) =>
+            gateway.read("https://protected.example.test"),
+          ),
+        ),
+      ).toMatchObject({ _tag: "Success", value: { _tag: "None" } });
+      expect(mocks.readSecureStorage).toHaveBeenCalledOnce();
+
       expect(mocks.listeners.size).toBe(0);
       mocks.appState = "background";
       await (await import("./protectedData")).whenProtectedDataAvailable();
