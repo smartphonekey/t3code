@@ -63,14 +63,9 @@ export const isHumanCloudflareAccessIdentity = (claims: CloudflareAccessJwtClaim
   if (claims.service_token_id !== undefined || claims.gateway_token_id !== undefined) {
     return false;
   }
+  // Both human and service application tokens use type "app"; machine claims distinguish them.
   const type = claims.type?.trim().toLowerCase();
-  if (
-    type === "app" ||
-    type === "service-token" ||
-    type === "service_token" ||
-    type === "non_identity"
-  )
-    return false;
+  if (type === "service-token" || type === "service_token" || type === "non_identity") return false;
   const authStatus = claims.auth_status?.trim().toLowerCase();
   if (authStatus === "none" || authStatus === "non_identity") return false;
   return true;
