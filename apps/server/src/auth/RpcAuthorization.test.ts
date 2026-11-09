@@ -410,57 +410,60 @@ it.effect("denies manual cleanup before the handler without settings permission"
   }).pipe(Effect.scoped),
 );
 
-it.effect("binds verified request identities and rejects invalid account proofs", () =>
-  Effect.gen(function* () {
-    const group = WsRpcGroup.omit(
-      ...[...WsRpcGroup.requests.keys()].filter(
-        (
-          tag,
-        ): tag is Exclude<
-          keyof typeof RPC_REQUIRED_SCOPES,
-          typeof WS_METHODS.serverUpdateSettings
-        > => tag !== WS_METHODS.serverUpdateSettings,
-      ),
-    );
-    const client = yield* RpcTest.makeClient(group).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          group.toLayerHandler(WS_METHODS.serverUpdateSettings, () =>
-            Effect.map(RequestAccount, (account) => ({
-              ...DEFAULT_SERVER_SETTINGS,
-              branchNamePrefix: account?.userId ?? "anonymous",
-            })),
-          ),
-          RpcAuthorization.layer(
-            [AuthSettingsWriteScope, AuthProvidersManageScope],
-            undefined,
-            (token) =>
-              token === "signed-alice"
-                ? Effect.succeed("alice")
-                : Effect.fail(
-                    new EnvironmentAuthorizationError({
-                      message: "Invalid account proof",
-                      requiredScope: AuthProvidersManageScope,
-                    }),
-                  ),
+it.effect.each([undefined, "cf-access:alice"])(
+  "binds verified request identities with owner %s and rejects invalid account proofs",
+  (ownerUserId) =>
+    Effect.gen(function* () {
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (
+            tag,
+          ): tag is Exclude<
+            keyof typeof RPC_REQUIRED_SCOPES,
+            typeof WS_METHODS.serverUpdateSettings
+          > => tag !== WS_METHODS.serverUpdateSettings,
+        ),
+      );
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.serverUpdateSettings, () =>
+              Effect.map(RequestAccount, (account) => ({
+                ...DEFAULT_SERVER_SETTINGS,
+                branchNamePrefix: account?.ownerUserId ?? account?.userId ?? "anonymous",
+              })),
+            ),
+            RpcAuthorization.layer(
+              [AuthSettingsWriteScope, AuthProvidersManageScope],
+              undefined,
+              (token) =>
+                token === "signed-alice"
+                  ? Effect.succeed("alice")
+                  : Effect.fail(
+                      new EnvironmentAuthorizationError({
+                        message: "Invalid account proof",
+                        requiredScope: AuthProvidersManageScope,
+                      }),
+                    ),
+              ownerUserId,
+            ),
           ),
         ),
-      ),
-    );
-    expect((yield* client[WS_METHODS.serverUpdateSettings]({ patch: {} })).branchNamePrefix).toBe(
-      "anonymous",
-    );
-    expect(
-      (yield* client[WS_METHODS.serverUpdateSettings](
-        { patch: {} },
-        { headers: { "x-t3-account-token": "signed-alice" } },
-      )).branchNamePrefix,
-    ).toBe("alice");
-    expect(
-      (yield* client[WS_METHODS.serverUpdateSettings](
-        { patch: {} },
-        { headers: { "x-t3-account-token": "forged-bob" } },
-      ).pipe(Effect.flip))._tag,
-    ).toBe("EnvironmentAuthorizationError");
-  }).pipe(Effect.scoped),
+      );
+      expect((yield* client[WS_METHODS.serverUpdateSettings]({ patch: {} })).branchNamePrefix).toBe(
+        ownerUserId ?? "anonymous",
+      );
+      expect(
+        (yield* client[WS_METHODS.serverUpdateSettings](
+          { patch: {} },
+          { headers: { "x-t3-account-token": "signed-alice" } },
+        )).branchNamePrefix,
+      ).toBe(ownerUserId ?? "alice");
+      expect(
+        (yield* client[WS_METHODS.serverUpdateSettings](
+          { patch: {} },
+          { headers: { "x-t3-account-token": "forged-bob" } },
+        ).pipe(Effect.flip))._tag,
+      ).toBe("EnvironmentAuthorizationError");
+    }).pipe(Effect.scoped),
 );

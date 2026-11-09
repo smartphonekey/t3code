@@ -72,6 +72,10 @@ export class CloudflareAccessIdentityPairing extends Context.Service<
       request: HttpServerRequest.HttpServerRequest,
       sessionId: AuthSessionId,
     ) => Effect.Effect<void, CloudflareAccessPairingError>;
+    readonly getSessionOwnerUserId: (
+      request: HttpServerRequest.HttpServerRequest,
+      sessionId: AuthSessionId,
+    ) => Effect.Effect<string | null, CloudflareAccessPairingError>;
     readonly resumeBrowserSession: (
       request: HttpServerRequest.HttpServerRequest,
       client: AuthClientMetadata,
@@ -153,6 +157,21 @@ const make = Effect.gen(function* () {
       sessionId,
       value: identityKey,
     });
+
+  const getSessionOwnerUserId = Effect.fn("CloudflareAccessIdentityPairing.getSessionOwnerUserId")(
+    function* (request: HttpServerRequest.HttpServerRequest, sessionId: AuthSessionId) {
+      const config = yield* readConfig();
+      if (!config.enabled) return null;
+      if (readCloudflareAccessJwtHeader(request.headers) !== null) {
+        return Option.getOrNull(
+          Option.map(yield* verifyRequestIdentity(request), (identity) => identity.identityKey),
+        );
+      }
+      const session = yield* authSessions.getById({ sessionId });
+      return Option.isSome(session) ? (session.value.cloudflareAccessIdentityKey ?? null) : null;
+    },
+    mapPairingError,
+  );
 
   const recordPairing: CloudflareAccessIdentityPairing["Service"]["recordPairing"] = Effect.fn(
     "CloudflareAccessIdentityPairing.recordPairing",
@@ -254,6 +273,7 @@ const make = Effect.gen(function* () {
     readConfig,
     verifyRequestIdentity,
     recordPairing,
+    getSessionOwnerUserId,
     resumeBrowserSession,
     sessionHasStoredCloudflareAccessIdentity,
     revokeCloudflareAccessIdentityForSession,

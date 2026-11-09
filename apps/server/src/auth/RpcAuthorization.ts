@@ -287,6 +287,7 @@ export const layer = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
   onAuthorized?: (method: string, payload: unknown) => Effect.Effect<void>,
   authenticateAccount?: (token: string) => Effect.Effect<string, EnvironmentAuthorizationError>,
+  ownerUserId?: string,
 ) =>
   Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload, headers }) => {
     const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
@@ -307,7 +308,12 @@ export const layer = (
         onAuthorized === undefined
           ? effect
           : Effect.tap(effect, () => onAuthorized(rpc._tag, payload))
-      ).pipe(Effect.provideService(RequestAccount, { userId }));
+      ).pipe(
+        Effect.provideService(RequestAccount, {
+          userId,
+          ...(ownerUserId === undefined ? {} : { ownerUserId }),
+        }),
+      );
     });
   });
 

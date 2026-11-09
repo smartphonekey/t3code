@@ -45,6 +45,7 @@ function parseArchivedThreadsEnvironmentKey(key: string): ReadonlyArray<Environm
 }
 
 export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
+  readonly ownerFilterAtom?: (environmentId: EnvironmentId) => Atom.Atom<string | null>;
   readonly getSnapshotAtom: (
     environmentId: EnvironmentId,
   ) => Atom.Atom<AsyncResult.AsyncResult<OrchestrationV2ArchivedShellSnapshot, E>>;
@@ -95,8 +96,14 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
         hidingAnywhere ? new Set(get(options.liveThreadRefsAtom).map(threadKey)) : undefined,
         hidingAnywhere,
       );
-      const ownerUserId = get(threadOwnerFilterAtom);
-      if (hidden.size === 0 && ownerUserId === null) return { snapshots, error, isLoading };
+      const owners = new Map(
+        snapshots.map(({ environmentId }) => [
+          environmentId,
+          get(options.ownerFilterAtom?.(environmentId) ?? threadOwnerFilterAtom),
+        ]),
+      );
+      if (hidden.size === 0 && [...owners.values()].every((owner) => owner === null))
+        return { snapshots, error, isLoading };
       return {
         snapshots: snapshots.map(({ environmentId, snapshot }) => ({
           environmentId,
@@ -104,7 +111,8 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
             ...snapshot,
             threads: snapshot.threads.filter(
               (thread) =>
-                (ownerUserId === null || thread.ownerUserId === ownerUserId) &&
+                (owners.get(environmentId) === null ||
+                  thread.ownerUserId === owners.get(environmentId)) &&
                 !hidden.has(threadKey({ environmentId, threadId: thread.id })),
             ),
           },

@@ -609,6 +609,7 @@ export type ServerEventLoopStall = typeof ServerEventLoopStall.Type;
 
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
+  threadOwnerUserId: Schema.optionalKey(TrimmedNonEmptyString),
   auth: ServerAuthDescriptor,
   cwd: TrimmedNonEmptyString,
   keybindingsConfigPath: TrimmedNonEmptyString,

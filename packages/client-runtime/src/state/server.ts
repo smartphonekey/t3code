@@ -439,6 +439,7 @@ export const makeEnvironmentServerConfigState = Effect.fn("EnvironmentServerConf
         environmentThemes: _themes,
         usageLimitSources: _sources,
         lastEventLoopStall: _stall,
+        threadOwnerUserId: _owner,
         ...cacheable
       } = config;
       if (lastPersisted !== undefined && sameCacheValue(lastPersisted, cacheable)) {

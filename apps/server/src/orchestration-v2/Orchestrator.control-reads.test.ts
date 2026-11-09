@@ -1064,6 +1064,7 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
       .dispatch({
         type: "thread.create",
         commandId: CommandId.make("create-question-parent"),
+        ownerUserId: "alice",
         threadId: parentThreadId,
         projectId: ProjectId.make("project:question"),
         title: "Parent",
@@ -1075,7 +1076,15 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
         createdBy: "user",
         creationSource: "web",
       })
-      .pipe(Effect.provideService(RequestAccount, { userId: "alice" }));
+      .pipe(
+        Effect.provideService(RequestAccount, {
+          userId: "alice",
+          ownerUserId: "cf-access:alice",
+        }),
+      );
+    const parentThread = (yield* projections.getThreadProjection(parentThreadId)).thread;
+    assert.equal(parentThread.ownerUserId, "cf-access:alice");
+    assert.equal(parentThread.billingUserId, "alice");
     yield* orchestrator
       .dispatch({
         type: "message.dispatch",

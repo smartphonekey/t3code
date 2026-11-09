@@ -1,5 +1,4 @@
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
-import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { threadOwnershipScopeAtom } from "@t3tools/client-runtime/state/threads";
 import { uuidv4 } from "../../lib/uuid";
 import { ThreadUndoNotice } from "./ThreadUndoNotice";
@@ -18,7 +17,7 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 
 import { useProjects } from "../../state/entities";
-import { environmentThreadShells } from "../../state/threads";
+import { environmentThreadShells, threadOwnership } from "../../state/threads";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -39,7 +38,7 @@ import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
 import { buildHomeListFilterMenuItems } from "./home-list-filter-menu";
 
 export function HomeRouteScreen() {
-  const accountId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
+  const accountId = useAtomValue(threadOwnership.userIdAtom);
   const ownershipScopeAtom = threadOwnershipScopeAtom(accountId ?? "");
   const ownershipScope = useAtomValue(ownershipScopeAtom);
   const setOwnershipScope = useAtomSet(ownershipScopeAtom);

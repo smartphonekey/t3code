@@ -187,6 +187,12 @@ it.layer(
         scopes: AuthStandardClientScopes,
         client: { deviceType: "desktop" },
       });
+      expect(
+        yield* pairing.getSessionOwnerUserId(makeAccessRequest(null), session.sessionId),
+      ).toBeNull();
+      expect(yield* pairing.getSessionOwnerUserId(request, session.sessionId)).toBe(
+        `cf-access:${SUB}`,
+      );
       yield* authSessions.setCloudflareAccessIdentityKey({
         sessionId: session.sessionId,
         value: `cf-access:${SUB}`,
@@ -195,6 +201,17 @@ it.layer(
       const row = yield* authSessions.getById({ sessionId: session.sessionId });
       expect(Option.isSome(row)).toBe(true);
       expect(Option.getOrThrow(row).cloudflareAccessIdentityKey).toBe(`cf-access:${SUB}`);
+      expect(yield* pairing.getSessionOwnerUserId(makeAccessRequest(null), session.sessionId)).toBe(
+        `cf-access:${SUB}`,
+      );
+      expect(
+        yield* pairing.getSessionOwnerUserId(
+          makeAccessRequest("forged", {
+            "cf-access-authenticated-user-email": "forged@example.com",
+          }),
+          session.sessionId,
+        ),
+      ).toBeNull();
     }).pipe(Effect.provide(layerBase(true))),
   );
 

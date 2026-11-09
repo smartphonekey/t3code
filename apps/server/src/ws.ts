@@ -231,6 +231,7 @@ import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as CloudflareAccessIdentityPairing from "./auth/CloudflareAccessIdentityPairing.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
@@ -1927,6 +1928,9 @@ export const layerWsRpc = (
         return {
           environment,
           auth,
+          ...(currentSession.ownerUserId === undefined
+            ? {}
+            : { threadOwnerUserId: currentSession.ownerUserId }),
           cwd: config.cwd,
           keybindingsConfigPath: config.keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
@@ -3579,6 +3583,14 @@ export const layer = Layer.unwrap(
           ),
         );
         const clientAnalyticsProps = readClientAnalyticsProps(request);
+        const cloudflareAccess = yield* Effect.serviceOption(
+          CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+        );
+        const ownerUserId = Option.isSome(cloudflareAccess)
+          ? yield* cloudflareAccess.value
+              .getSessionOwnerUserId(request, session.sessionId)
+              .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)))
+          : null;
         yield* analytics.recordOwners(readClientOwners(request), "client");
         const reportProfiles = yield* serverBrowser.profileReporter;
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
@@ -3605,6 +3617,7 @@ export const layer = Layer.unwrap(
                           .pipe(Effect.ignore);
                   },
                   accountSubscriptions.authenticate,
+                  ownerUserId ?? undefined,
                 ),
                 rpcInstrumentationLayer,
               ),
@@ -3615,7 +3628,7 @@ export const layer = Layer.unwrap(
         }).pipe(
           Effect.provide(
             layerWsRpc(
-              session,
+              { ...session, ...(ownerUserId === null ? {} : { ownerUserId }) },
               clientAnalyticsProps,
               serverBrowser,
               reportProfiles,

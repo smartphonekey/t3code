@@ -2947,7 +2947,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const account = yield* RequestAccount;
-    const ownerUserId = command.ownerUserId ?? account?.userId;
+    const ownerUserId = account?.ownerUserId ?? command.ownerUserId ?? account?.userId;
     const thread: OrchestrationV2AppThread = {
       ...(account === undefined ? {} : { billingUserId: account.userId }),
       ...(ownerUserId == null ? {} : { ownerUserId }),
@@ -4666,6 +4666,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         type: "fork",
       }),
     );
+    const account = yield* RequestAccount;
+    const ownerUserId = account?.ownerUserId ?? command.ownerUserId ?? account?.userId;
     const { targetThread, transfer } = yield* threadForkService
       .plan({
         sourceProjection,
@@ -4681,7 +4683,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : contextSourcePointForRun(sourceProjection, sourceRun),
         transferId,
         targetThreadId: command.targetThreadId,
-        ...(command.ownerUserId === undefined ? {} : { ownerUserId: command.ownerUserId }),
+        ...(ownerUserId == null ? {} : { ownerUserId }),
         ...(command.title === undefined ? {} : { title: command.title }),
         ...(command.sideChat ? { sideChat: true } : {}),
         createdBy: command.createdBy,

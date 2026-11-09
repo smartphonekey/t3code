@@ -87,6 +87,7 @@ export interface McpClientSession {
 }
 
 export interface AuthenticatedSession {
+  readonly ownerUserId?: string;
   readonly sessionId: AuthSessionId;
   readonly subject: string;
   readonly method: ServerAuthSessionMethod;

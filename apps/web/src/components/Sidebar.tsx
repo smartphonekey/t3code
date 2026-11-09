@@ -10,7 +10,6 @@ import {
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
-import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { threadOwnershipScopeAtom } from "@t3tools/client-runtime/state/threads";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
@@ -156,7 +155,7 @@ import {
 import { environmentPresentations } from "../state/presentation";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { environmentProjects } from "../state/projects";
-import { threadEnvironment } from "../state/threads";
+import { threadEnvironment, threadOwnership } from "../state/threads";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../state/olderSettledShelf";
 import { useThreadSearch } from "../state/queries";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
@@ -1103,7 +1102,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         );
-  const accountId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
+  const accountId = useAtomValue(threadOwnership.userIdAtom);
   const ownershipScopeAtom = threadOwnershipScopeAtom(accountId ?? "");
   const ownershipScope = useAtomValue(ownershipScopeAtom);
   const setOwnershipScope = useAtomSet(ownershipScopeAtom);

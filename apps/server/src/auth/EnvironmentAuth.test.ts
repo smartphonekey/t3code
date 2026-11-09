@@ -33,6 +33,7 @@ const layerCloudflareAccessDisabled = Layer.succeed(
     readConfig: () => Effect.succeed({ enabled: false, teamDomain: "", applicationAud: "" }),
     verifyRequestIdentity: () => Effect.succeedNone,
     recordPairing: () => Effect.void,
+    getSessionOwnerUserId: () => Effect.succeed(null),
     resumeBrowserSession: () => Effect.succeedNone,
     sessionHasStoredCloudflareAccessIdentity: () => Effect.succeed(false),
     revokeCloudflareAccessIdentityForSession: () => Effect.void,

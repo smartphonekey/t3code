@@ -18,7 +18,7 @@ import { v2Now, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixt
 import { applyShellStreamEvent } from "./shellReducer.ts";
 import { isThreadWorking } from "./threadInbox.ts";
 import { managedRelaySessionAtom } from "../relay/managedRelayState.ts";
-import { threadOwnershipScopeAtom } from "./threadOwnership.ts";
+import { createThreadOwnershipAtoms, threadOwnershipScopeAtom } from "./threadOwnership.ts";
 import { childThreadInputsTitle, createEnvironmentThreadShellAtoms } from "./threadShell.ts";
 
 const environmentId = EnvironmentId.make("environment-v2");
@@ -47,19 +47,63 @@ function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environment
       ]),
     ),
   });
+  const configValueAtom = Atom.family((_id: EnvironmentId | null) =>
+    Atom.make<{ readonly threadOwnerUserId?: string } | null>(null),
+  );
+  const ownership = createThreadOwnershipAtoms({ catalogValueAtom, configValueAtom });
   return {
     registry: AtomRegistry.make(),
     snapshotAtom,
     catalogValueAtom,
+    configValueAtom,
+    ownership,
     threads: createEnvironmentThreadShellAtoms({
       catalogValueAtom,
       snapshotAtom,
       hiddenThreadTagsAtom: () => Atom.make(null),
+      ownerFilterAtom: ownership.filterAtom,
     }),
   };
 }
 
 describe("v2 thread shell lists", () => {
+  it("uses each environment's Cloudflare identity without a T3 Connect login", () => {
+    const { registry, threads, snapshotAtom, configValueAtom, ownership } = makeHarness([
+      environmentId,
+      remoteEnvironmentId,
+    ]);
+    for (const [id, user] of [
+      [environmentId, "alice"],
+      [remoteEnvironmentId, "bob"],
+    ] as const) {
+      registry.set(configValueAtom(id), { threadOwnerUserId: `cf-access:${user}` });
+      registry.set(snapshotAtom(id), {
+        ...v2ShellSnapshot,
+        threads: ["cf-access:alice", "cf-access:bob", undefined].map((ownerUserId, index) => ({
+          ...v2ThreadShell,
+          id: ThreadId.make(`thread:${index}`),
+          ...(ownerUserId === undefined ? {} : { ownerUserId }),
+        })),
+      });
+    }
+    const dispose = registry.mount(threads.quietThreadShellsAtom);
+    expect(registry.get(ownership.userIdAtom)).toBe("cf-access:alice");
+    expect(registry.get(threads.quietThreadShellsAtom).map((thread) => thread.id)).toEqual([
+      "thread:0",
+      "thread:1",
+    ]);
+    registry.set(threadOwnershipScopeAtom("cf-access:alice"), "all");
+    expect(registry.get(threads.quietThreadShellsAtom)).toHaveLength(6);
+    registry.set(threadOwnershipScopeAtom("cf-access:alice"), "mine");
+    registry.set(configValueAtom(environmentId), { threadOwnerUserId: "cf-access:bob" });
+    expect(registry.get(ownership.userIdAtom)).toBe("cf-access:bob");
+    expect(registry.get(threads.quietThreadShellsAtom).map((thread) => thread.id)).toEqual([
+      "thread:1",
+      "thread:1",
+    ]);
+    dispose();
+    registry.dispose();
+  });
   it("defaults to the account's threads across environments and can show all threads", () => {
     const { registry, threads, snapshotAtom } = makeHarness([environmentId, remoteEnvironmentId]);
     for (const id of [environmentId, remoteEnvironmentId]) {

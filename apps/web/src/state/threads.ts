@@ -11,6 +11,7 @@ import {
   createOlderSettledThreadAtoms,
   createThreadEnvironmentAtoms,
   createThreadFamilyAtoms,
+  createThreadOwnershipAtoms,
 } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -34,6 +35,10 @@ export const threadEnvironment = createThreadEnvironmentAtoms(
   threadFamilies.snapshotAtom,
 );
 const environmentThreads = createEnvironmentThreadStateAtoms(connectionAtomRuntime);
+export const threadOwnership = createThreadOwnershipAtoms({
+  catalogValueAtom: environmentCatalog.catalogValueAtom,
+  configValueAtom: serverEnvironment.configValueAtom,
+});
 export const environmentThreadDetails = createEnvironmentThreadDetailAtoms(
   environmentThreads.stateAtom,
 );
@@ -41,6 +46,7 @@ export const environmentThreadShells = createEnvironmentThreadShellAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
   snapshotAtom: threadEnvironment.snapshotAtom,
   hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
+  ownerFilterAtom: threadOwnership.filterAtom,
 });
 export const childThreadApprovalsAtom = createChildThreadApprovalsAtom({
   childThreadInputsAtom: environmentThreadShells.childThreadInputsAtom,

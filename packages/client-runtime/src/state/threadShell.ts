@@ -202,6 +202,7 @@ function sameApartFromStreaming(
 }
 
 export function createEnvironmentThreadShellAtoms(input: {
+  readonly ownerFilterAtom?: (environmentId: EnvironmentId) => Atom.Atom<string | null>;
   readonly catalogValueAtom: Atom.Atom<EnvironmentCatalogState>;
   readonly snapshotAtom: (
     environmentId: EnvironmentId,
@@ -599,18 +600,19 @@ export function createEnvironmentThreadShellAtoms(input: {
   // exists (outboxes, drafts, removals) never mistakes a hidden thread for a missing one.
   let previousHiddenThreadKeys: ReadonlySet<string> = NO_HIDDEN_THREADS;
   const hiddenThreadKeysAtom = Atom.make((get) => {
-    const ownerUserId = get(threadOwnerFilterAtom);
     const environments = Array.from(
       enabledEnvironmentIds(get(input.catalogValueAtom)),
       (environmentId) => ({
         environmentId,
+        ownerUserId: get(input.ownerFilterAtom?.(environmentId) ?? threadOwnerFilterAtom),
         hiddenTags: get(input.hiddenThreadTagsAtom(environmentId)),
       }),
     );
     // Avoid reading shells while neither ownership nor tags filter the list.
     if (
-      ownerUserId === null &&
-      !environments.some((environment) => environment.hiddenTags !== null)
+      !environments.some(
+        (environment) => environment.ownerUserId !== null || environment.hiddenTags !== null,
+      )
     ) {
       previousHiddenThreadKeys = NO_HIDDEN_THREADS;
       return NO_HIDDEN_THREADS;
@@ -623,12 +625,11 @@ export function createEnvironmentThreadShellAtoms(input: {
         })),
       ),
     );
-    if (ownerUserId !== null) {
-      for (const { environmentId } of environments) {
-        for (const thread of get(environmentThreadsAtom(environmentId))) {
-          if (thread.ownerUserId !== ownerUserId)
-            next.add(threadKey({ environmentId, threadId: thread.id }));
-        }
+    for (const { environmentId, ownerUserId } of environments) {
+      if (ownerUserId === null) continue;
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
+        if (thread.ownerUserId !== ownerUserId)
+          next.add(threadKey({ environmentId, threadId: thread.id }));
       }
     }
     if (
@@ -641,12 +642,12 @@ export function createEnvironmentThreadShellAtoms(input: {
     return next;
   }).pipe(Atom.withLabel("environment-hidden-thread-keys"));
 
-  const anyEnvironmentHidingAtom = Atom.make(
-    (get) =>
-      get(threadOwnerFilterAtom) !== null ||
-      Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).some(
-        (environmentId) => get(input.hiddenThreadTagsAtom(environmentId)) !== null,
-      ),
+  const anyEnvironmentHidingAtom = Atom.make((get) =>
+    Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).some(
+      (environmentId) =>
+        get(input.ownerFilterAtom?.(environmentId) ?? threadOwnerFilterAtom) !== null ||
+        get(input.hiddenThreadTagsAtom(environmentId)) !== null,
+    ),
   ).pipe(Atom.withLabel("environment-any-hiding-thread-tags"));
 
   /** threadShellsAtom without the threads the tag filter hides, for pickers and palettes. */
