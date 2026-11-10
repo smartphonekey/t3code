@@ -17,18 +17,25 @@ fi
 
 node_version="${SPK_BOOTSTRAP_NODE_VERSION:-}"
 if [[ -z "$node_version" && -f package.json ]]; then
-  node_version="$(jq -r '.engines.node | sub("^\\^"; "")' package.json)"
+  node_version="$(jq -r '.engines.node' package.json | sed 's/^\^//')"
 fi
 node_version="${node_version:-26.12.1}"
 
 node_home="$HOME/.cache/spk-ci-node/v${node_version}"
 if [[ ! -x "$node_home/bin/node" ]]; then
   tmp="$(mktemp -d)"
+  node_archive="$tmp/node.tar.xz"
   curl -fsSL \
     "https://nodejs.org/dist/v${node_version}/node-v${node_version}-linux-x64.tar.xz" \
-    | tar -xJ -C "$tmp" --strip-components=1
+    -o "$node_archive"
+  mkdir -p "$tmp/node"
+  if tar -xJf "$node_archive" -C "$tmp/node" --strip-components=1 2>/dev/null; then
+    :
+  else
+    xz -dc "$node_archive" | tar -xf - -C "$tmp/node" --strip-components=1
+  fi
   mkdir -p "$node_home"
-  cp -a "$tmp"/. "$node_home/"
+  cp -a "$tmp/node"/. "$node_home/"
   rm -rf "$tmp"
 fi
 
