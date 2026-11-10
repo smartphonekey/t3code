@@ -39,7 +39,7 @@ fi
 mem_total_kb="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
 swapfile=/var/tmp/spk-ci-swapfile
 if (( mem_total_kb < 14 * 1024 * 1024 )) && ! grep -qF "$swapfile" /proc/swaps 2>/dev/null; then
-  sudo dd if=/dev/zero of="$swapfile" bs=1M count=4096 status=none
+  sudo dd if=/dev/zero of="$swapfile" bs=1M count=8192 status=none
   sudo chmod 600 "$swapfile"
   sudo mkswap "$swapfile" >/dev/null
   sudo swapon "$swapfile"
