@@ -5,6 +5,11 @@ runs:
   steps:
     - shell: bash
       run: |
+        if [[ ! -d /etc/apt ]]; then
+          echo "No APT on this runner; skipping Blacksmith mirror setup."
+          exit 0
+        fi
+
         # Replace the existing Blacksmith mirror list as well as direct sources.
         printf '%s\tpriority:%s\n' \
           https://archive.ubuntu.com/ubuntu 1 \

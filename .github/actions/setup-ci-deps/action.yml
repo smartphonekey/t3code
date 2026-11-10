@@ -20,6 +20,10 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Bootstrap spk-aws host
+      if: runner.environment == 'self-hosted' && vars.CI_RUNNER != 'hosted'
+      uses: ./.github/actions/setup-spk-aws-host
+
     # ~/.vite-plus holds vp, the Node.js runtime, and pnpm. A cache entry never
     # updates, so the key names all three versions; otherwise a pnpm or Node.js
     # bump makes every job download them from npm again.

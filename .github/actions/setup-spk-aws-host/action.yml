@@ -1,0 +1,21 @@
+name: Setup spk-aws CI host
+description: Install toolchain packages missing from ephemeral Amazon Linux spk-aws runners.
+runs:
+  using: composite
+  steps:
+    - name: Install host packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v dnf >/dev/null 2>&1; then
+          sudo dnf install -y \
+            git jq curl tar gzip xz unzip which \
+            gcc gcc-c++ make pkgconf-pkg-config libsecret-devel python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo apt-get install -y \
+            git jq curl tar gzip xz-utils unzip build-essential pkg-config libsecret-1-dev python3
+        else
+          echo "No supported package manager for spk-aws host bootstrap." >&2
+          exit 1
+        fi
