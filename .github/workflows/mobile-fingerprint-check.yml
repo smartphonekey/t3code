@@ -30,7 +30,6 @@ jobs:
       contents: read
     env:
       APP_VARIANT: production
-      NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -58,13 +57,9 @@ jobs:
 
       - name: Setup Vite+
         if: steps.changes.outputs.relevant == 'true'
-        uses: voidzero-dev/setup-vp@v1
+        uses: ./.github/actions/setup-ci-deps
         with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=@t3tools/mobile...
+          install-args: --filter=@t3tools/mobile...
 
       - name: Expose pnpm
         if: steps.changes.outputs.relevant == 'true'
