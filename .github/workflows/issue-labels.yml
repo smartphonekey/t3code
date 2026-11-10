@@ -15,7 +15,7 @@ permissions:
 jobs:
   sync:
     name: Sync issue labels
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     steps:
       - name: Ensure managed issue labels exist
         uses: actions/github-script@v7

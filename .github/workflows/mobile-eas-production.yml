@@ -76,7 +76,7 @@ jobs:
   production:
     name: EAS ${{ inputs.profile || 'production' }} ${{ github.event_name == 'push' && 'auto' || inputs.mode }}
     if: github.repository == 'pingdotgg/t3code'
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     permissions:
       contents: read
     env:
