@@ -39,7 +39,8 @@ if [[ ! -x "$node_home/bin/node" ]]; then
   rm -rf "$tmp"
 fi
 
-echo "PATH=$node_home/bin:$PATH" >> "$GITHUB_ENV"
+export PATH="$node_home/bin:$PATH"
+echo "PATH=$PATH" >> "$GITHUB_ENV"
 echo "$node_home/bin" >> "$GITHUB_PATH"
-node --version
-npm --version
+"$node_home/bin/node" --version
+"$node_home/bin/npm" --version
