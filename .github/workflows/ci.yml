@@ -44,9 +44,11 @@ jobs:
         with:
           fetch-depth: 2
           sparse-checkout: |
+            /package.json
             /pnpm-workspace.yaml
             /.github/scripts/ci-changes.cjs
             /.github/actions/ci-changes/
+            /.github/actions/setup-spk-aws-host/
             /*/package.json
             /*/*/package.json
             !/.repos/

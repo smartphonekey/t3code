@@ -63,6 +63,7 @@ runs:
       uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
       env:
         VP_DOWNLOAD_TIMEOUT: "120"
+        VP_NODE_MANAGER: ${{ runner.environment == 'self-hosted' && vars.CI_RUNNER != 'hosted' && 'no' || 'yes' }}
       with:
         node-version-file: package.json
         cache: false
