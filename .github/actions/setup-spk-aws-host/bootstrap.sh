@@ -57,7 +57,6 @@ fi
 
 export PATH="$node_home/bin:$PATH"
 echo "PATH=$PATH" >> "$GITHUB_ENV"
-echo "NODE_OPTIONS=--max-old-space-size=8192" >> "$GITHUB_ENV"
 echo "$node_home/bin" >> "$GITHUB_PATH"
 "$node_home/bin/node" --version
 "$node_home/bin/npm" --version
