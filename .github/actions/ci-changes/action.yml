@@ -22,10 +22,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Bootstrap spk-aws host
-      if: runner.environment == 'self-hosted' && vars.CI_RUNNER != 'hosted'
-      uses: ./.github/actions/setup-spk-aws-host
-
     - id: detect
       shell: bash
       env:
