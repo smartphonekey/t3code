@@ -1,5 +1,6 @@
 name: CI
 
+# Linux x64 CI jobs default to SmartphoneKey AWS runners (group `spk-ci`, labels `self-hosted` / `linux` / `x64` / `spk-aws`). Roll back to GitHub/Blacksmith without a code change: set repo variable `CI_RUNNER=hosted` (`gh variable set CI_RUNNER -R smartphonekey/t3code -b hosted`).
 on:
   workflow_dispatch:
   pull_request:
@@ -23,7 +24,7 @@ jobs:
   # open: if the diff cannot be resolved, everything runs.
   changes:
     name: Changes
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 5
     outputs:
       typecheck: ${{ steps.detect.outputs.typecheck }}
@@ -64,7 +65,7 @@ jobs:
       contents: read
       id-token: write
     name: Lint
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -120,7 +121,7 @@ jobs:
     name: Build and Typecheck
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.build != 'false' || needs.changes.outputs.typecheck != 'false') }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -249,7 +250,7 @@ jobs:
     name: Test
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test != 'false' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -331,7 +332,7 @@ jobs:
     name: Test Web
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -389,7 +390,7 @@ jobs:
       contents: read
       id-token: write
     name: Test Server ${{ matrix.shard }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     # Shards take 2-5 minutes. When the shared task cache throttles reads, each
     # failed fetch stalls vp for 15-90s, which pushed shards past 10 minutes.
     timeout-minutes: 20
@@ -505,7 +506,7 @@ jobs:
     name: Rust
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -571,7 +572,7 @@ jobs:
     name: Release Smoke
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.release_smoke != 'false' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -611,7 +612,7 @@ jobs:
         mobile_native_static_analysis,
         release_smoke,
       ]
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 5
     steps:
       - name: Require every job to pass

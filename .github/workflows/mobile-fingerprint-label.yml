@@ -23,7 +23,7 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 5
     permissions:
       actions: read
