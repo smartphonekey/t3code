@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! command -v sudo >/dev/null 2>&1; then
+  echo "spk-aws bootstrap requires sudo for host packages (dnf/apt)." >&2
+  exit 1
+fi
+
 if command -v dnf >/dev/null 2>&1; then
   sudo dnf install -y \
-    git jq curl tar gzip xz unzip which patch bzip2 \
+    git jq curl tar gzip xz unzip which patch bzip2 libatomic \
     gcc gcc-c++ make pkgconf-pkg-config libsecret-devel python3
 elif command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
@@ -13,6 +18,17 @@ elif command -v apt-get >/dev/null 2>&1; then
 else
   echo "No supported package manager for spk-aws host bootstrap." >&2
   exit 1
+fi
+
+if ! ldconfig -p 2>/dev/null | grep -q libatomic.so.1; then
+  if command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y libatomic
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y libatomic
+  else
+    echo "libatomic.so.1 is missing and no dnf/yum is available to install it." >&2
+    exit 1
+  fi
 fi
 
 node_version="${SPK_BOOTSTRAP_NODE_VERSION:-}"
