@@ -223,12 +223,7 @@ jobs:
 
       - name: Install missing Chromium system dependencies
         if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/web/node_modules/playwright/cli.js install-deps chromium
-          fi
+        run: bash .github/actions/setup-spk-aws-host/ensure-playwright-chromium-deps.sh apps/web/node_modules/playwright/cli.js
 
       - name: Boot the built web client
         if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
@@ -376,12 +371,7 @@ jobs:
         run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
 
       - name: Install missing Chromium system dependencies
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/web/node_modules/playwright/cli.js install-deps chromium
-          fi
+        run: bash .github/actions/setup-spk-aws-host/ensure-playwright-chromium-deps.sh apps/web/node_modules/playwright/cli.js
 
       - name: Test
         run: vp run --filter @t3tools/web test
@@ -456,12 +446,7 @@ jobs:
 
       - name: Install missing Chromium system dependencies
         if: steps.changes.outputs.test_server != 'false'
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/server/node_modules/playwright-core/cli.js install-deps chromium
-          fi
+        run: bash .github/actions/setup-spk-aws-host/ensure-playwright-chromium-deps.sh apps/server/node_modules/playwright-core/cli.js
 
       - name: Test
         if: steps.changes.outputs.test_server != 'false'

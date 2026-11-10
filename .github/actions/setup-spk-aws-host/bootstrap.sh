@@ -8,7 +8,7 @@ fi
 
 if command -v dnf >/dev/null 2>&1; then
   sudo dnf install -y \
-    git jq curl tar gzip xz unzip which patch bzip2 libatomic \
+    dbus git jq curl tar gzip xz unzip which patch bzip2 libatomic \
     gcc gcc-c++ make pkgconf-pkg-config libsecret-devel python3
 elif command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
@@ -57,6 +57,7 @@ fi
 
 export PATH="$node_home/bin:$PATH"
 echo "PATH=$PATH" >> "$GITHUB_ENV"
+echo "NODE_OPTIONS=--max-old-space-size=8192" >> "$GITHUB_ENV"
 echo "$node_home/bin" >> "$GITHUB_PATH"
 "$node_home/bin/node" --version
 "$node_home/bin/npm" --version
