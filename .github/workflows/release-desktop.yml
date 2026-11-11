@@ -124,7 +124,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.label }}
-    runs-on: ${{ (vars.CI_RUNNER != 'hosted' && ((inputs.platform == 'linux' && inputs.arch == 'x64') || (inputs.platform == 'win' && inputs.verify_runner != ''))) && fromJSON('["self-hosted","linux","x64","spk-aws"]') || inputs.runner }}
+    runs-on: ${{ inputs.runner }}
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
     timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}
