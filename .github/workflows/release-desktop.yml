@@ -412,7 +412,15 @@ jobs:
       - name: Install patchelf
         if: inputs.cli_archive && inputs.platform == 'linux'
         shell: bash
-        run: command -v patchelf || { sudo apt-get update && sudo apt-get install -y patchelf; }
+        run: |
+          if ! command -v patchelf >/dev/null 2>&1; then
+            if command -v dnf >/dev/null 2>&1; then
+              sudo dnf install -y patchelf
+            else
+              sudo apt-get update
+              sudo apt-get install -y patchelf
+            fi
+          fi
 
       - name: Build CLI archive
         id: build_cli
@@ -477,10 +485,18 @@ jobs:
         if: inputs.platform == 'linux'
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev pkg-config
+          if command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y libsecret-devel pkgconf-pkg-config
+          else
+            sudo apt-get update
+            sudo apt-get install -y libsecret-1-dev pkg-config
+          fi
           if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            if command -v dnf >/dev/null 2>&1; then
+              sudo dnf install -y ImageMagick
+            else
               sudo apt-get install -y imagemagick
+            fi
           fi
 
           if command -v magick >/dev/null 2>&1; then
