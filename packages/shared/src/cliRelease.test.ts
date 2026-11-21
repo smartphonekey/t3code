@@ -1,8 +1,55 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cliArchiveTarCommand, newestCliReleaseVersion, parseChecksums } from "./cliRelease.ts";
+import {
+  CLI_RELEASE_BASE_URL_ENV,
+  CLI_RELEASE_REPOSITORY_ENV,
+  cliReleaseAssetUrl,
+  cliReleaseDownloadBaseUrl,
+  cliReleaseIndexPageUrl,
+  cliReleaseRepository,
+  cliReleasesPageUrl,
+  cliArchiveTarCommand,
+  newestCliReleaseVersion,
+  parseChecksums,
+} from "./cliRelease.ts";
 
 describe("cliRelease", () => {
+  it("defaults the release repository and feed URLs to smartphonekey/t3code", () => {
+    expect(cliReleaseRepository({})).toBe("smartphonekey/t3code");
+    expect(cliReleasesPageUrl({})).toBe("https://github.com/smartphonekey/t3code/releases");
+    expect(cliReleaseIndexPageUrl(2, {})).toBe(
+      "https://api.github.com/repos/smartphonekey/t3code/releases?per_page=100&page=2",
+    );
+    expect(cliReleaseDownloadBaseUrl("1.2.3", undefined, {})).toBe(
+      "https://github.com/smartphonekey/t3code/releases/download/v1.2.3",
+    );
+    expect(cliReleaseAssetUrl("1.2.3", "SHA256SUMS", undefined, {})).toBe(
+      "https://github.com/smartphonekey/t3code/releases/download/v1.2.3/SHA256SUMS",
+    );
+  });
+
+  it("honors T3CODE_RELEASE_REPOSITORY and keeps T3CODE_RELEASE_BASE_URL as the download override", () => {
+    const env = {
+      [CLI_RELEASE_REPOSITORY_ENV]: "acme/t3code",
+    };
+    expect(cliReleaseRepository(env)).toBe("acme/t3code");
+    expect(cliReleaseIndexPageUrl(1, env)).toContain("/repos/acme/t3code/releases");
+    expect(cliReleaseDownloadBaseUrl("0.0.1", undefined, env)).toBe(
+      "https://github.com/acme/t3code/releases/download/v0.0.1",
+    );
+    const mirrorEnv = {
+      ...env,
+      [CLI_RELEASE_BASE_URL_ENV]: "https://mirror.example/t3code/releases/download",
+    };
+    expect(cliReleaseDownloadBaseUrl("0.0.1", undefined, mirrorEnv)).toBe(
+      "https://mirror.example/t3code/releases/download/v0.0.1",
+    );
+    expect(cliReleaseAssetUrl("0.0.1", "t3-0.0.1-linux-x64.tar.gz", undefined, mirrorEnv)).toBe(
+      "https://mirror.example/t3code/releases/download/v0.0.1/t3-0.0.1-linux-x64.tar.gz",
+    );
+    expect(cliReleaseIndexPageUrl(1, mirrorEnv)).toContain("/repos/acme/t3code/releases");
+  });
+
   it("parses sha256sum output including binary-mode markers", () => {
     const checksums = parseChecksums(
       [
