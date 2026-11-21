@@ -2565,7 +2565,8 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
       Layer.succeed(SqlClient.SqlClient, sql),
     );
     const services = AcpRegistrySessions.layer.pipe(Layer.provideMerge(dependencies));
-    // Built in the test's scope so the settings database stays open for every call below.
+    // The fork's subscription owner check reads settings on import, so the services (and their
+    // settings database) must outlive client construction; building them in the test scope does that.
     const rpcContext = yield* Layer.build(
       layerWsRpc(
         {

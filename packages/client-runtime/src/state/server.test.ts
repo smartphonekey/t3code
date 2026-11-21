@@ -1822,7 +1822,8 @@ describe("provider setup commands", () => {
         target: TARGET,
         state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
         session: yield* SubscriptionRef.make(Option.some(session(client))),
-        // Settings writes are guarded, so the command reads the session's grants over HTTP.
+        // The fork guards settings writes (subscription controls read that permission), so the
+        // command reads the session's grants over HTTP and this test must serve one.
         prepared: yield* SubscriptionRef.make(
           Option.some<PreparedConnection>({
             environmentId: TARGET.environmentId,
