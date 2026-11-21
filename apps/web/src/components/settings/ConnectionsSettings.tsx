@@ -1538,11 +1538,15 @@ function ConnectionsSettingsContent({
           >
             <AlertDialogPopup>
               <AlertDialogHeader>
-                <AlertDialogTitle>Revoke Cloudflare Access identity?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  <T>Revoke Cloudflare Access identity?</T>
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This client was paired through Cloudflare Access. Revoke only this browser, or
-                  remove the stored Access identity so every browser they used must pair again
-                  before reconnecting.
+                  <T>
+                    This client was paired through Cloudflare Access. Revoke only this browser, or
+                    remove the stored Access identity so every browser they used must pair again
+                    before reconnecting.
+                  </T>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1550,7 +1554,7 @@ function ConnectionsSettingsContent({
                   render={<Button variant="outline" />}
                   disabled={revokingDesktopClientSessionId !== null}
                 >
-                  Cancel
+                  <T>Cancel</T>
                 </AlertDialogClose>
                 <Button
                   variant="outline"
@@ -1562,7 +1566,7 @@ function ConnectionsSettingsContent({
                     void handleRevokeDesktopClientSession(target.sessionId);
                   }}
                 >
-                  This browser only
+                  <T>This browser only</T>
                 </Button>
                 <Button
                   variant="destructive"
@@ -1574,7 +1578,7 @@ function ConnectionsSettingsContent({
                     void handleRevokeDesktopClientSession(target.sessionId, true);
                   }}
                 >
-                  All browsers for this person
+                  <T>All browsers for this person</T>
                 </Button>
               </AlertDialogFooter>
             </AlertDialogPopup>

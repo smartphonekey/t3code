@@ -69,7 +69,7 @@ import {
   type ParamListBase,
 } from "@react-navigation/native";
 import { SymbolView } from "../../components/ui/AppSymbol";
-import { msg, useGT, useMessages } from "gt-react-native";
+import { msg, T, useGT, useMessages } from "gt-react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1038,7 +1038,9 @@ export function AddProjectRepositoryScreen(props: {
             loading={isSubmitting}
           />
           {repositories?.length === 0 ? (
-            <Text className="px-4 py-3 text-sm text-foreground-muted">No repositories found.</Text>
+            <Text className="px-4 py-3 text-sm text-foreground-muted">
+              <T>No repositories found.</T>
+            </Text>
           ) : (
             repositories?.map((repository) => (
               <NavigationRow

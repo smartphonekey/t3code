@@ -6,6 +6,7 @@ import {
   type EnvironmentId,
   type ServerProvider,
 } from "@t3tools/contracts";
+import { T, useGT } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -20,6 +21,7 @@ export function ProviderSubscriptionControls({
   environmentId: EnvironmentId;
   provider: ServerProvider;
 }) {
+  const gt = useGT();
   const userId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
   const settings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
   const subscription = settings?.providerSubscriptions[provider.instanceId];
@@ -62,18 +64,20 @@ export function ProviderSubscriptionControls({
     <View className="gap-2 p-4">
       <Text className="text-sm text-foreground-muted">
         {sharing
-          ? `Shared until ${new Date(subscription.sharedUntil!).toLocaleString()}`
+          ? gt("Shared until {time}", {
+              time: new Date(subscription.sharedUntil!).toLocaleString(),
+            })
           : own
-            ? "Your private subscription"
+            ? gt("Your private subscription")
             : subscription === undefined
-              ? "Unassigned subscription"
-              : "Private subscription"}
+              ? gt("Unassigned subscription")
+              : gt("Private subscription")}
       </Text>
       {subscription === undefined ? (
         <Button
           size="compact"
           tone="secondary"
-          label="Use as my subscription"
+          label={gt("Use as my subscription")}
           disabled={pending || !canManage || userId === null}
           onPress={() => void change("claim")}
         />
@@ -81,14 +85,14 @@ export function ProviderSubscriptionControls({
         <Button
           size="compact"
           tone="secondary"
-          label={sharing ? "Stop sharing" : "Share until weekly reset"}
+          label={sharing ? gt("Stop sharing") : gt("Share until weekly reset")}
           disabled={pending || !canManage || (!sharing && weeklyReset === null)}
           onPress={() => void change(sharing ? "revoke" : "share")}
         />
       ) : null}
       {own && !sharing && weeklyReset === null ? (
         <Text className="text-sm text-foreground-muted">
-          Weekly reset unavailable. Choose an expiry in web or desktop Settings.
+          <T>Weekly reset unavailable. Choose an expiry in web or desktop Settings.</T>
         </Text>
       ) : null}
     </View>

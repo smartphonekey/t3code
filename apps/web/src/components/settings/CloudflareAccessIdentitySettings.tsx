@@ -1,4 +1,5 @@
 import { AuthAccessWriteScope } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { Switch } from "../ui/switch";
 import { Input } from "../ui/input";
@@ -11,6 +12,7 @@ export function CloudflareAccessIdentitySettings({
 }: {
   readonly environmentId: EnvironmentId;
 }) {
+  const gt = useGT();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const session = useEnvironmentSessionState(environmentId);
@@ -19,22 +21,22 @@ export function CloudflareAccessIdentitySettings({
     (session.data.permissions ?? session.data.scopes)?.includes(AuthAccessWriteScope) === true;
 
   return (
-    <SettingsSection title="Cloudflare Access identity pairing">
+    <SettingsSection title={gt("Cloudflare Access identity pairing")}>
       <SettingsRow
         serverScoped
-        title="Cloudflare Access identity pairing"
+        title={gt("Cloudflare Access identity pairing")}
         settingKeys={[
           "enableCloudflareAccessIdentityPairing",
           "cloudflareAccessTeamDomain",
           "cloudflareAccessApplicationAud",
         ]}
         description={
-          <>
+          <T>
             Remember verified Cloudflare Access identities after first pair so other browsers can
             reconnect without a new code. Requires{" "}
             <code className="text-xs">Cf-Access-Jwt-Assertion</code>; email headers are not trusted.
             Off by default.
-          </>
+          </T>
         }
         control={
           <Switch
@@ -43,7 +45,7 @@ export function CloudflareAccessIdentitySettings({
             onCheckedChange={(checked) =>
               updateSettings({ enableCloudflareAccessIdentityPairing: Boolean(checked) })
             }
-            aria-label="Cloudflare Access identity pairing"
+            aria-label={gt("Cloudflare Access identity pairing")}
           />
         }
       />
@@ -51,8 +53,10 @@ export function CloudflareAccessIdentitySettings({
         <>
           <SettingsRow
             serverScoped
-            title="Access team domain"
-            description="Your Cloudflare Access team hostname, for example myteam.cloudflareaccess.com."
+            title={gt("Access team domain")}
+            description={gt(
+              "Your Cloudflare Access team hostname, for example myteam.cloudflareaccess.com.",
+            )}
             control={
               <Input
                 className="max-w-md"
@@ -67,8 +71,10 @@ export function CloudflareAccessIdentitySettings({
           />
           <SettingsRow
             serverScoped
-            title="Application AUD"
-            description="The audience tag of the Cloudflare Access application in front of this server."
+            title={gt("Application AUD")}
+            description={gt(
+              "The audience tag of the Cloudflare Access application in front of this server.",
+            )}
             control={
               <Input
                 className="max-w-md"
@@ -77,7 +83,7 @@ export function CloudflareAccessIdentitySettings({
                 onChange={(event) =>
                   updateSettings({ cloudflareAccessApplicationAud: event.currentTarget.value })
                 }
-                placeholder="Access application AUD"
+                placeholder={gt("Access application AUD")}
               />
             }
           />

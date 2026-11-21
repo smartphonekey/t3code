@@ -3050,8 +3050,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     size="sm"
                     aria-label={
                       ownershipScope === "mine"
-                        ? "Showing my chats. Show all chats"
-                        : "Showing all chats. Show my chats"
+                        ? gt("Showing my chats. Show all chats")
+                        : gt("Showing all chats. Show my chats")
                     }
                     onClick={() => {
                       clearSelection();
@@ -3059,7 +3059,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       scrollSidebarToTop(sidebarContentRef.current);
                     }}
                   >
-                    {ownershipScope === "mine" ? "My chats" : "All chats"}
+                    {ownershipScope === "mine" ? gt("My chats") : gt("All chats")}
                   </Button>
                 ) : null
               }

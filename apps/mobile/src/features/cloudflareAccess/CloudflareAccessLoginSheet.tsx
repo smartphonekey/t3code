@@ -1,5 +1,6 @@
 import { CloudflareAccessSession } from "@t3tools/client-runtime/cloudflare-access";
 import CookieManager from "@react-native-cookies/cookies";
+import { T, useGT } from "gt-react-native";
 import { useCallback, useMemo, useRef } from "react";
 import { Modal, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,6 +16,7 @@ export function CloudflareAccessLoginSheet(props: {
   readonly onComplete: (session: CloudflareAccessSession) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   const insets = useSafeAreaInsets();
   const extracting = useRef<CloudflareAccessLoginRequest | null>(null);
   const pollScript = useMemo(
@@ -81,10 +83,13 @@ export function CloudflareAccessLoginSheet(props: {
         style={{ paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 12) }}
       >
         <View className="flex-row items-center justify-between px-4 pb-3 pt-2">
-          <Text className="text-lg font-semibold text-label">Cloudflare Access</Text>
+          <Text className="text-lg font-semibold text-label">
+            {/* oxlint-disable-next-line t3code/no-untranslated-copy -- product name */}
+            Cloudflare Access
+          </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Cancel Cloudflare Access sign-in"
+            accessibilityLabel={gt("Cancel Cloudflare Access sign-in")}
             onPress={props.onCancel}
             className="h-9 w-9 items-center justify-center"
           >
@@ -92,7 +97,7 @@ export function CloudflareAccessLoginSheet(props: {
           </Pressable>
         </View>
         <Text className="px-4 pb-3 text-sm text-secondary-label">
-          Sign in to reach this environment. This is separate from pairing T3 Code.
+          <T>Sign in to reach this environment. This is separate from pairing T3 Code.</T>
         </Text>
         <View className="min-h-0 flex-1 overflow-hidden rounded-t-2xl border-t border-separator">
           <WebView

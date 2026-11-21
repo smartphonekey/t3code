@@ -2579,7 +2579,7 @@ function OpenCommandPaletteDialog(props: {
       ? [
           {
             value: "repository-search",
-            label: "Repositories",
+            label: gt("Repositories"),
             items: repositorySearch.map((repository) => ({
               kind: "action" as const,
               value: `repository:${repository.url}`,

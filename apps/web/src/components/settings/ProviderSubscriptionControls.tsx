@@ -6,6 +6,7 @@ import {
   type ProviderSubscriptionMutation,
   type ServerProvider,
 } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { useState } from "react";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useDeadlinePassed, useNowAfter } from "../../hooks/useDeadline";
@@ -22,6 +23,7 @@ export function ProviderSubscriptionControls({
   environmentId: EnvironmentId;
   provider: ServerProvider;
 }) {
+  const gt = useGT();
   const userId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
   const subscription = useEnvironmentSettings(
     environmentId,
@@ -71,21 +73,23 @@ export function ProviderSubscriptionControls({
     setPending(false);
   };
   return (
-    <SettingsSection title="Subscription access">
+    <SettingsSection title={gt("Subscription access")}>
       <SettingsRow
         title={
           own
-            ? "Your subscription"
+            ? gt("Your subscription")
             : subscription === undefined
-              ? "Unassigned subscription"
-              : "Another person's subscription"
+              ? gt("Unassigned subscription")
+              : gt("Another person's subscription")
         }
         description={
           sharing
-            ? `Shared until ${new Date(subscription.sharedUntil!).toLocaleString()}. Sharing will not renew automatically.`
+            ? gt("Shared until {time}. Sharing will not renew automatically.", {
+                time: new Date(subscription.sharedUntil!).toLocaleString(),
+              })
             : subscription === undefined
-              ? "Claim this account to prefer it for your new chats and control sharing."
-              : "Private. Only its owner can use it."
+              ? gt("Claim this account to prefer it for your new chats and control sharing.")
+              : gt("Private. Only its owner can use it.")
         }
         control={
           subscription === undefined ? (
@@ -95,7 +99,7 @@ export function ProviderSubscriptionControls({
               disabled={pending || !canManage || userId === null}
               onClick={() => void change("claim")}
             >
-              Use as my subscription
+              <T>Use as my subscription</T>
             </Button>
           ) : own && sharing ? (
             <Button
@@ -104,7 +108,7 @@ export function ProviderSubscriptionControls({
               disabled={pending || !canManage}
               onClick={() => void change("revoke")}
             >
-              Stop sharing
+              <T>Stop sharing</T>
             </Button>
           ) : own ? (
             <Button
@@ -113,19 +117,23 @@ export function ProviderSubscriptionControls({
               disabled={pending || !canManage || (weeklyReset === null && !(explicitExpiry > now))}
               onClick={() => void change("share")}
             >
-              {weeklyReset === null ? "Share until selected time" : "Share until weekly reset"}
+              {weeklyReset === null
+                ? gt("Share until selected time")
+                : gt("Share until weekly reset")}
             </Button>
           ) : undefined
         }
       />
       {own && !sharing && weeklyReset === null ? (
         <SettingsRow
-          title="Sharing expiry"
-          description="This provider does not report its weekly reset. Choose when sharing should end."
+          title={gt("Sharing expiry")}
+          description={gt(
+            "This provider does not report its weekly reset. Choose when sharing should end.",
+          )}
           control={
             <Input
               type="datetime-local"
-              aria-label="Subscription sharing expiry"
+              aria-label={gt("Subscription sharing expiry")}
               value={expiry}
               onChange={(event) => setExpiry(event.target.value)}
             />
@@ -134,7 +142,7 @@ export function ProviderSubscriptionControls({
       ) : null}
       {userId === null ? (
         <p className="text-sm text-muted-foreground">
-          Sign in to T3 Connect to claim a subscription.
+          <T>Sign in to T3 Connect to claim a subscription.</T>
         </p>
       ) : null}
     </SettingsSection>
