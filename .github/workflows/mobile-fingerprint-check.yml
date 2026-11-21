@@ -28,12 +28,11 @@ jobs:
   fingerprint:
     name: Native fingerprint diff
     if: github.event.action != 'edited' || github.event.changes.base
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     permissions:
       contents: read
     env:
       APP_VARIANT: production
-      NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -61,13 +60,9 @@ jobs:
 
       - name: Setup Vite+
         if: steps.changes.outputs.relevant == 'true'
-        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
+        uses: ./.github/actions/setup-ci-deps
         with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=@t3tools/mobile...
+          install-args: --filter=@t3tools/mobile...
 
       - name: Expose pnpm
         if: steps.changes.outputs.relevant == 'true'

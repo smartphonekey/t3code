@@ -1,0 +1,8 @@
+name: Setup spk-aws CI host
+description: Install toolchain packages missing from ephemeral Amazon Linux spk-aws runners.
+runs:
+  using: composite
+  steps:
+    - name: Install host packages and Node.js
+      shell: bash
+      run: bash "${{ github.action_path }}/bootstrap.sh"
