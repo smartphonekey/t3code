@@ -416,6 +416,7 @@ export class SessionStore extends Context.Service<
       readonly replaceSessionId?: AuthSessionId;
       /** Keeps the session alive this long past each renewal; `ttl` then bounds only the token. */
       readonly renewalWindow?: Duration.Duration;
+      readonly cloudflareAccessIdentityKey?: string;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
     /** Trades a renewable token, even an expired one, for a fresh token on the same session. */
     readonly renew: (
@@ -768,6 +769,9 @@ const make = Effect.gen(function* () {
           os: client.os ?? null,
           browser: client.browser ?? null,
         },
+        ...(input?.cloudflareAccessIdentityKey
+          ? { accessIdentityKey: input.cloudflareAccessIdentityKey }
+          : {}),
         issuedAt,
         expiresAt: sessionExpiresAt,
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),

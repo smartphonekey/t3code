@@ -456,6 +456,7 @@ function makeMutableServerSettingsService(
           Effect.map((subscription) => Stream.fromSubscription(subscription)),
         );
       },
+      setProviderSubscription: () => Effect.die("Unexpected subscription mutation"),
     } satisfies ServerSettingsModule.ServerSettingsService["Service"];
   });
 }
@@ -4073,6 +4074,7 @@ it.layer(
               Effect.as(mutableServerSettings.streamChanges),
             ),
           ),
+          setProviderSubscription: () => Effect.die("Unexpected subscription mutation"),
         } satisfies ServerSettingsModule.ServerSettingsService["Service"];
         const scope = yield* Scope.make();
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
@@ -4319,6 +4321,7 @@ it.layer(
             Stream.ensuring(Deferred.succeed(done, undefined)),
           );
         }),
+        setProviderSubscription: () => Effect.die("Unexpected subscription mutation"),
       } satisfies ServerSettingsModule.ServerSettingsService["Service"];
       const dependencies = yield* Layer.build(
         Layer.mergeAll(

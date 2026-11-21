@@ -49,6 +49,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { RequestAccount } from "../auth/RequestAccount.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as Metrics from "../observability/Metrics.ts";
@@ -223,6 +224,7 @@ interface ScheduledTaskRow {
   readonly model_selection_json: string;
   readonly runtime_mode: string;
   readonly interaction_mode: string;
+  readonly billing_user_id: string | null;
   readonly created_by: string;
   readonly creation_source: string;
   readonly created_at: string;
@@ -414,6 +416,7 @@ const decodeRow = Effect.fnUntraced(
       modelSelection,
       runtimeMode: row.runtime_mode,
       interactionMode: row.interaction_mode,
+      billingUserId: row.billing_user_id,
       createdBy: row.created_by,
       creationSource: row.creation_source,
       createdAt: row.created_at,
@@ -538,6 +541,7 @@ export const layer = Layer.effect(
         model_selection_json,
         runtime_mode,
         interaction_mode,
+        billing_user_id,
         created_by,
         creation_source,
         created_at,
@@ -580,6 +584,7 @@ export const layer = Layer.effect(
         model_selection_json,
         runtime_mode,
         interaction_mode,
+        billing_user_id,
         created_by,
         creation_source,
         created_at,
@@ -623,11 +628,23 @@ export const layer = Layer.effect(
       Effect.mapError((cause) => taskError("Could not generate webhook token.", { cause })),
     );
 
+    const assertTaskOwner = Effect.fnUntraced(function* (task: ScheduledTask) {
+      const account = yield* RequestAccount;
+      if (
+        task.billingUserId != null &&
+        account !== undefined &&
+        account.userId !== task.billingUserId
+      ) {
+        return yield* taskError("Only the task's owner can change or run it.", { taskId: task.id });
+      }
+    });
+
     const loadTask = Effect.fn("ScheduledTaskService.loadTask")(function* (id: ScheduledTaskId) {
       const task = yield* findTask(id);
       if (task === null) {
         return yield* taskError("Schedule task not found.", { taskId: id });
       }
+      yield* assertTaskOwner(task);
       return task;
     });
 
@@ -660,7 +677,8 @@ export const layer = Layer.effect(
           model_selection_json,
           runtime_mode,
           interaction_mode,
-          created_by,
+          billing_user_id,
+        created_by,
           creation_source,
           created_at,
           updated_at,
@@ -685,6 +703,7 @@ export const layer = Layer.effect(
           ${JSON.stringify(task.modelSelection)},
           ${task.runtimeMode},
           ${task.interactionMode},
+          ${task.billingUserId ?? null},
           ${task.createdBy},
           ${task.creationSource},
           ${task.createdAt},
@@ -700,6 +719,7 @@ export const layer = Layer.effect(
            OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id})
         ON CONFLICT (task_id)
         DO UPDATE SET
+          billing_user_id = COALESCE(scheduled_tasks.billing_user_id, excluded.billing_user_id),
           title = excluded.title,
           prompt = excluded.prompt,
           enabled = excluded.enabled,
@@ -741,6 +761,8 @@ export const layer = Layer.effect(
             WHEN ${webhook.secretChanged ? 1 : 0} = 1 THEN excluded.webhook_secret
             ELSE scheduled_tasks.webhook_secret
           END
+        WHERE scheduled_tasks.billing_user_id IS NULL
+           OR scheduled_tasks.billing_user_id IS excluded.billing_user_id
         RETURNING task_id
       `.pipe(
         Effect.mapError((cause) =>
@@ -1043,6 +1065,7 @@ export const layer = Layer.effect(
           if (reason !== null) return yield* new WebhookDeliverySkipped({ reason });
         }
 
+        if (trigger === "manual") yield* assertTaskOwner(active);
         if (webhook === undefined) yield* markRunning(active.id, startedAtIso);
         else
           yield* sql
@@ -1130,6 +1153,7 @@ export const layer = Layer.effect(
                     creationSource: active.creationSource,
                   })
                   .pipe(
+                    Effect.provideService(RequestAccount, { userId: active.billingUserId ?? null }),
                     Effect.map((launched) => launched.threadId),
                     Effect.tap((threadId) =>
                       threadMode === "new_thread" ? Effect.void : bindThread(active, threadId),
@@ -1140,6 +1164,7 @@ export const layer = Layer.effect(
                 // The stored selection only seeds fresh threads. A bound run
                 // follows the thread's current provider, so it passes none.
                 sendBound(ThreadId.make(active.threadId), active.projectId, 2).pipe(
+                  Effect.provideService(RequestAccount, { userId: active.billingUserId ?? null }),
                   Effect.as(ThreadId.make(active.threadId)),
                 ),
               );
@@ -1479,6 +1504,8 @@ export const layer = Layer.effect(
       // keep their run history, and so real load failures propagate instead
       // of silently resetting an existing row.
       const existingTask = yield* findTask(id);
+      if (existingTask !== null) yield* assertTaskOwner(existingTask);
+      const account = yield* RequestAccount;
       const threadMode = resolveThreadMode(input, existingTask);
       const keptThreadId =
         input.threadId ?? (input.unbindThread === true ? null : (existingTask?.threadId ?? null));
@@ -1585,6 +1612,7 @@ export const layer = Layer.effect(
       if (!scheduleUnchanged)
         yield* requireFutureOnce({ enabled: input.enabled, schedule }, now, id);
       const task: ScheduledTask = {
+        billingUserId: existingTask?.billingUserId ?? account?.userId ?? null,
         id,
         title: input.title,
         prompt: input.prompt,

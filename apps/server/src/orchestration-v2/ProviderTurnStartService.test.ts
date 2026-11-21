@@ -100,11 +100,11 @@ const normalize = (target: string) => {
   }
   return `/${parts.join("/")}`;
 };
-const layerWorktreeLocation = (worktreesDir = managedWorktreesDir) =>
+const layerWorktreeLocation = (worktreesDir = managedWorktreesDir, subscriptions = {}) =>
   Layer.mergeAll(
     Path.layer,
     Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as ServerConfig.ServerConfig["Service"]),
-    ServerSettings.layerTest(),
+    ServerSettings.layerTest({ providerSubscriptions: subscriptions }),
   );
 
 function startWithMissingWorktree(
@@ -460,6 +460,10 @@ function makeLocalCommandHarness(input: {
   readonly canForkWhileSourceRunning?: boolean;
   readonly exposesNativeTurnId?: boolean;
   readonly goalDriver?: "opencode" | "antigravity";
+  readonly subscription?: {
+    readonly requesterUserId: string | null;
+    readonly sharedUntil: string | null;
+  };
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
   readonly workspaceRoot?: string;
@@ -523,6 +527,9 @@ function makeLocalCommandHarness(input: {
   const messageId = MessageId.make("message-native-account-command");
   const run: OrchestrationV2ThreadProjection["runs"][number] = {
     ...(input.manualContinuation ? { manualContinuationOfRunId: RunId.make("stopped-run") } : {}),
+    ...(input.subscription === undefined
+      ? {}
+      : { requesterUserId: input.subscription.requesterUserId }),
     id: runId,
     threadId,
     ordinal: 2,
@@ -575,6 +582,7 @@ function makeLocalCommandHarness(input: {
   };
   let projection: OrchestrationV2ThreadProjection = {
     thread: {
+      ...(input.subscription === undefined ? {} : { billingUserId: "alice" }),
       id: threadId,
       activeProviderThreadId: providerThreadId,
       projectId: ProjectId.make("project-native-account-command"),
@@ -1345,7 +1353,17 @@ function makeLocalCommandHarness(input: {
         }),
         IdAllocator.layer,
         Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({}),
-        layerWorktreeLocation(input.worktreesDir),
+        layerWorktreeLocation(
+          input.worktreesDir,
+          input.subscription === undefined
+            ? {}
+            : {
+                [newInstanceId]: {
+                  ownerUserId: "alice",
+                  sharedUntil: input.subscription.sharedUntil,
+                },
+              },
+        ),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
           : Layer.succeed(FileSystem.FileSystem, input.fileSystem),
@@ -3404,5 +3422,24 @@ effectIt.effect("rejects citation expansion before opening a provider session", 
       },
     ]);
     expect(harness.projection().messages[0]?.text).toBe(text);
+  }),
+);
+
+effectIt.effect("rejects queued borrowers at execution after sharing expires or is revoked", () =>
+  Effect.gen(function* () {
+    for (const subscription of [
+      { requesterUserId: "bob", sharedUntil: null },
+      { requesterUserId: "bob", sharedUntil: "1970-01-01T00:00:00Z" },
+      // An explicitly anonymous run must not inherit the thread owner's identity.
+      { requesterUserId: null, sharedUntil: null },
+    ]) {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        subscription,
+      });
+      expect(yield* harness.start.pipe(Effect.flip)).toBeDefined();
+      expect(harness.open).not.toHaveBeenCalled();
+      expect(harness.startTurn).not.toHaveBeenCalled();
+    }
   }),
 );

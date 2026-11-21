@@ -1,3 +1,5 @@
+import { RequestAccount } from "../auth/RequestAccount.ts";
+import { canUseProviderSubscription } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -103,6 +105,25 @@ export const make = Effect.gen(function* () {
       ),
     );
     const now = DateTime.toEpochMillis(yield* DateTime.now);
+    const requestAccount = yield* RequestAccount;
+    const subscriptionSettings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: "Could not read subscription access.",
+            cause,
+          }),
+      ),
+    );
+    const canUse = (instanceId: ProviderInstanceId) =>
+      requestAccount === undefined ||
+      canUseProviderSubscription(
+        subscriptionSettings.providerSubscriptions[instanceId],
+        requestAccount.userId,
+        now,
+      );
+
     const selected = snapshots.find((provider) => provider.instanceId === selection.instanceId);
     const selectedDisabled = selected?.enabled === false;
     // Only a failed probe counts: a pending one is also not installed yet.
@@ -115,7 +136,11 @@ export const make = Effect.gen(function* () {
             ?.supportsTextGeneration === false ||
           (selected.status === "error" &&
             (!selected.installed || selected.auth.status === "unauthenticated"))));
-    if (unusable || exhaustedUsageWindow(selected, now, selection.model)) {
+    if (
+      !canUse(selection.instanceId) ||
+      unusable ||
+      exhaustedUsageWindow(selected, now, selection.model)
+    ) {
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.mapError(
           (cause) =>
@@ -133,6 +158,7 @@ export const make = Effect.gen(function* () {
             const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
             return (
               instanceId !== selection.instanceId &&
+              canUse(instanceId) &&
               provider?.enabled === true &&
               resolveProjectProviderInstanceEnabled(settings, projectId ?? null, instanceId) &&
               provider.installed &&
@@ -147,6 +173,11 @@ export const make = Effect.gen(function* () {
           { defaultModelSelection: settings.defaultModelSelection },
         ) ?? selection;
     }
+    if (!canUse(selection.instanceId))
+      return yield* new TextGenerationError({
+        operation,
+        detail: "This subscription is private or sharing has expired.",
+      });
     if (textGeneratorCannotRun && selection.instanceId === textGeneratorId) {
       return yield* new TextGenerationError({
         operation,

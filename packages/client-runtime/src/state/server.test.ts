@@ -1,4 +1,5 @@
 import {
+  AuthProvidersManageScope,
   EnvironmentId,
   ProviderDriverKind,
   ServerSelfUpdateError,
@@ -34,6 +35,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import * as TestClock from "effect/testing/TestClock";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import { RpcClientError } from "effect/rpc";
 import * as Socket from "effect/socket/Socket";
 
@@ -1820,17 +1822,55 @@ describe("provider setup commands", () => {
         target: TARGET,
         state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
         session: yield* SubscriptionRef.make(Option.some(session(client))),
-        prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
+        // The fork guards settings writes (subscription controls read that permission), so the
+        // command reads the session's grants over HTTP and this test must serve one.
+        prepared: yield* SubscriptionRef.make(
+          Option.some<PreparedConnection>({
+            environmentId: TARGET.environmentId,
+            label: TARGET.label,
+            httpBaseUrl: TARGET.httpBaseUrl,
+            socketUrl: TARGET.wsBaseUrl,
+            httpAuthorization: null,
+            target: TARGET,
+          }),
+        ),
         connect: Effect.void,
         disconnect: Effect.void,
         retryNow: Effect.void,
       } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
       const runtime = Atom.runtime(
-        Layer.merge(
+        Layer.mergeAll(
+          Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    authenticated: true,
+                    auth: {
+                      policy: "remote-reachable",
+                      bootstrapMethods: [],
+                      sessionMethods: [],
+                      sessionCookieName: "test",
+                    },
+                    scopes: [AuthProvidersManageScope],
+                    permissions: [AuthProvidersManageScope],
+                  }),
+                ),
+              ),
+            ),
+          ),
           Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, {
             run: (_environmentId, effect) =>
               Effect.provideService(
                 effect,
+                EnvironmentSupervisor.EnvironmentSupervisor,
+                supervisor,
+              ),
+            followStream: (_environmentId, stream) =>
+              Stream.provideService(
+                stream,
                 EnvironmentSupervisor.EnvironmentSupervisor,
                 supervisor,
               ),

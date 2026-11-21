@@ -10,7 +10,7 @@ import { useMemo } from "react";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { serverEnvironment } from "../../state/server";
-import { environmentThreadShells } from "../../state/threads";
+import { environmentThreadShells, threadOwnership } from "../../state/threads";
 
 function archivedSnapshotAtom(environmentId: EnvironmentId) {
   return orchestrationEnvironment.archivedShellSnapshot({
@@ -22,6 +22,7 @@ function archivedSnapshotAtom(environmentId: EnvironmentId) {
 const archivedSnapshotsAtom = createArchivedThreadSnapshotsAtomFamily({
   getSnapshotAtom: archivedSnapshotAtom,
   hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
+  ownerFilterAtom: threadOwnership.filterAtom,
   hiddenThreadKeysAtom: environmentThreadShells.hiddenThreadKeysAtom,
   liveThreadRefsAtom: environmentThreadShells.threadRefsAtom,
   anyEnvironmentHidingAtom: environmentThreadShells.anyEnvironmentHidingAtom,

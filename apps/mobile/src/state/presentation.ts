@@ -15,6 +15,7 @@ export const environmentPresentations = createEnvironmentPresentationAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
   stateAtom: environmentCatalog.stateAtom,
   serverConfigValueAtom: serverEnvironment.configValueAtom,
+  providersValueAtom: serverEnvironment.providersValueAtom,
 });
 
 export const { connectedEnvironmentIdsAtom } = createEnvironmentSummaryAtoms({

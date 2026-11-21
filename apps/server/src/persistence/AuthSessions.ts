@@ -37,6 +37,7 @@ export const AuthSessionRecord = Schema.Struct({
   scopes: AuthEnvironmentScopes,
   method: ServerAuthSessionMethod,
   client: AuthSessionClientMetadataRecord,
+  cloudflareAccessIdentityKey: Schema.NullOr(Schema.String),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -50,6 +51,7 @@ export const CreateAuthSessionInput = Schema.Struct({
   scopes: AuthEnvironmentScopes,
   method: ServerAuthSessionMethod,
   client: AuthSessionClientMetadataRecord,
+  accessIdentityKey: Schema.optionalKey(Schema.NullOr(Schema.String)),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   proofKeyThumbprint: Schema.optionalKey(Schema.String),
@@ -108,6 +110,28 @@ export const SetAuthSessionLastConnectedAtInput = Schema.Struct({
 });
 export type SetAuthSessionLastConnectedAtInput = typeof SetAuthSessionLastConnectedAtInput.Type;
 
+export const SetAuthSessionCloudflareAccessIdentityKeyInput = Schema.Struct({
+  sessionId: AuthSessionId,
+  value: Schema.NullOr(Schema.String),
+});
+export type SetAuthSessionCloudflareAccessIdentityKeyInput =
+  typeof SetAuthSessionCloudflareAccessIdentityKeyInput.Type;
+
+export const ListActiveAuthSessionsByCloudflareAccessIdentityKeyInput = Schema.Struct({
+  key: Schema.String,
+  now: Schema.DateTimeUtcFromString,
+  connectedSessionIds: Schema.optionalKey(Schema.Array(AuthSessionId)),
+});
+export type ListActiveAuthSessionsByCloudflareAccessIdentityKeyInput =
+  typeof ListActiveAuthSessionsByCloudflareAccessIdentityKeyInput.Type;
+
+export const RevokeActiveAuthSessionsByCloudflareAccessIdentityKeyInput = Schema.Struct({
+  key: Schema.String,
+  revokedAt: Schema.DateTimeUtcFromString,
+});
+export type RevokeActiveAuthSessionsByCloudflareAccessIdentityKeyInput =
+  typeof RevokeActiveAuthSessionsByCloudflareAccessIdentityKeyInput.Type;
+
 export class AuthSessionRepository extends Context.Service<
   AuthSessionRepository,
   {
@@ -145,6 +169,15 @@ export class AuthSessionRepository extends Context.Service<
     readonly revokeByProofKey: (
       input: RevokeAuthSessionsByProofKeyInput,
     ) => Effect.Effect<ReadonlyArray<AuthSessionId>, AuthSessionRepositoryError>;
+    readonly setCloudflareAccessIdentityKey: (
+      input: SetAuthSessionCloudflareAccessIdentityKeyInput,
+    ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    readonly listActiveByCloudflareAccessIdentityKey: (
+      input: ListActiveAuthSessionsByCloudflareAccessIdentityKeyInput,
+    ) => Effect.Effect<ReadonlyArray<AuthSessionId>, AuthSessionRepositoryError>;
+    readonly revokeActiveByCloudflareAccessIdentityKey: (
+      input: RevokeActiveAuthSessionsByCloudflareAccessIdentityKeyInput,
+    ) => Effect.Effect<ReadonlyArray<AuthSessionId>, AuthSessionRepositoryError>;
   }
 >()("t3/persistence/AuthSessions/AuthSessionRepository") {}
 
@@ -159,6 +192,7 @@ const AuthSessionDbRow = Schema.Struct({
   clientDeviceType: Schema.Literals(["desktop", "mobile", "tablet", "bot", "unknown"]),
   clientOs: Schema.NullOr(Schema.String),
   clientBrowser: Schema.NullOr(Schema.String),
+  cloudflareAccessIdentityKey: Schema.NullOr(Schema.String),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -176,6 +210,7 @@ const AuthSessionRawDbRow = Schema.Struct({
   clientDeviceType: Schema.Unknown,
   clientOs: Schema.Unknown,
   clientBrowser: Schema.Unknown,
+  cloudflareAccessIdentityKey: Schema.Unknown,
   issuedAt: Schema.Unknown,
   expiresAt: Schema.Unknown,
   lastConnectedAt: Schema.Unknown,
@@ -198,6 +233,7 @@ function toAuthSessionRecord(row: typeof AuthSessionDbRow.Type): AuthSessionReco
       os: row.clientOs,
       browser: row.clientBrowser,
     },
+    cloudflareAccessIdentityKey: row.cloudflareAccessIdentityKey,
     issuedAt: row.issuedAt,
     expiresAt: row.expiresAt,
     lastConnectedAt: row.lastConnectedAt,
@@ -240,6 +276,7 @@ export const make = Effect.gen(function* () {
           client_device_type,
           client_os,
           client_browser,
+          cloudflare_access_identity_key,
           issued_at,
           expires_at,
           revoked_at,
@@ -256,6 +293,7 @@ export const make = Effect.gen(function* () {
           ${input.client.deviceType},
           ${input.client.os},
           ${input.client.browser},
+          ${input.accessIdentityKey ?? null},
           ${input.issuedAt},
           ${input.expiresAt},
           NULL,
@@ -283,6 +321,7 @@ export const make = Effect.gen(function* () {
           client_device_type AS "clientDeviceType",
           client_os AS "clientOs",
           client_browser AS "clientBrowser",
+          cloudflare_access_identity_key AS "cloudflareAccessIdentityKey",
           issued_at AS "issuedAt",
           expires_at AS "expiresAt",
           last_connected_at AS "lastConnectedAt",
@@ -327,6 +366,7 @@ export const make = Effect.gen(function* () {
           client_device_type AS "clientDeviceType",
           client_os AS "clientOs",
           client_browser AS "clientBrowser",
+          cloudflare_access_identity_key AS "cloudflareAccessIdentityKey",
           issued_at AS "issuedAt",
           expires_at AS "expiresAt",
           last_connected_at AS "lastConnectedAt",
@@ -335,6 +375,43 @@ export const make = Effect.gen(function* () {
         WHERE revoked_at IS NULL
           AND (expires_at > ${now} OR ${sql.in("session_id", connectedSessionIds)})
         ORDER BY issued_at DESC, session_id DESC
+      `,
+  });
+
+  const setCloudflareAccessIdentityKeyRow = SqlSchema.void({
+    Request: SetAuthSessionCloudflareAccessIdentityKeyInput,
+    execute: ({ sessionId, value }) =>
+      sql`
+        UPDATE auth_sessions
+        SET cloudflare_access_identity_key = ${value}
+        WHERE session_id = ${sessionId}
+          AND revoked_at IS NULL
+      `,
+  });
+
+  const listActiveSessionIdsByCloudflareAccessIdentityKey = SqlSchema.findAll({
+    Request: ListActiveAuthSessionsByCloudflareAccessIdentityKeyInput,
+    Result: Schema.Struct({ sessionId: AuthSessionId }),
+    execute: ({ key, now, connectedSessionIds = [] }) =>
+      sql`
+        SELECT session_id AS "sessionId"
+        FROM auth_sessions
+        WHERE cloudflare_access_identity_key = ${key}
+          AND revoked_at IS NULL
+          AND (expires_at > ${now} OR ${sql.in("session_id", connectedSessionIds)})
+      `,
+  });
+
+  const revokeActiveSessionsByCloudflareAccessIdentityKey = SqlSchema.findAll({
+    Request: RevokeActiveAuthSessionsByCloudflareAccessIdentityKeyInput,
+    Result: Schema.Struct({ sessionId: AuthSessionId }),
+    execute: ({ key, revokedAt }) =>
+      sql`
+        UPDATE auth_sessions
+        SET revoked_at = ${revokedAt}
+        WHERE cloudflare_access_identity_key = ${key}
+          AND revoked_at IS NULL
+        RETURNING session_id AS "sessionId"
       `,
   });
 
@@ -462,7 +539,6 @@ export const make = Effect.gen(function* () {
 
   const getById: AuthSessionRepository["Service"]["getById"] = (input) =>
     getSessionRowById(input).pipe(
-      NodeSqliteClient.readOnly,
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "AuthSessionRepository.getById:query",
@@ -490,7 +566,6 @@ export const make = Effect.gen(function* () {
 
   const listActive: AuthSessionRepository["Service"]["listActive"] = (input) =>
     listActiveSessionRows(input).pipe(
-      NodeSqliteClient.readOnly,
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "AuthSessionRepository.listActive:query",
@@ -586,6 +661,42 @@ export const make = Effect.gen(function* () {
       Effect.map((rows) => rows.map((row) => row.sessionId)),
     );
 
+  const setCloudflareAccessIdentityKey: AuthSessionRepository["Service"]["setCloudflareAccessIdentityKey"] =
+    (input) =>
+      setCloudflareAccessIdentityKeyRow(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "AuthSessionRepository.setCloudflareAccessIdentityKey:query",
+            "AuthSessionRepository.setCloudflareAccessIdentityKey:encodeRequest",
+            { sessionId: input.sessionId },
+          ),
+        ),
+      );
+
+  const listActiveByCloudflareAccessIdentityKey: AuthSessionRepository["Service"]["listActiveByCloudflareAccessIdentityKey"] =
+    (input) =>
+      listActiveSessionIdsByCloudflareAccessIdentityKey(input).pipe(
+        Effect.map((rows) => rows.map((row) => row.sessionId)),
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "AuthSessionRepository.listActiveByCloudflareAccessIdentityKey:query",
+            "AuthSessionRepository.listActiveByCloudflareAccessIdentityKey:decodeRows",
+          ),
+        ),
+      );
+
+  const revokeActiveByCloudflareAccessIdentityKey: AuthSessionRepository["Service"]["revokeActiveByCloudflareAccessIdentityKey"] =
+    (input) =>
+      revokeActiveSessionsByCloudflareAccessIdentityKey(input).pipe(
+        Effect.map((rows) => rows.map((row) => row.sessionId)),
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "AuthSessionRepository.revokeActiveByCloudflareAccessIdentityKey:query",
+            "AuthSessionRepository.revokeActiveByCloudflareAccessIdentityKey:decodeRows",
+          ),
+        ),
+      );
+
   return {
     create,
     createReplacingActive,
@@ -598,6 +709,9 @@ export const make = Effect.gen(function* () {
     setLastConnectedAt,
     getProofKeyThumbprint,
     revokeByProofKey,
+    setCloudflareAccessIdentityKey,
+    listActiveByCloudflareAccessIdentityKey,
+    revokeActiveByCloudflareAccessIdentityKey,
   } satisfies AuthSessionRepository["Service"];
 });
 
