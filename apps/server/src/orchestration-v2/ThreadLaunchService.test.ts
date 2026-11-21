@@ -48,6 +48,7 @@ import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
+import { RequestAccount } from "../auth/RequestAccount.ts";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -967,11 +968,29 @@ it.effect("arms durable title generation after accepting the first message", () 
         title: "Generate my title",
         generateTitle: true,
       };
-      const launched = yield* launches.launch(input);
+      const settings = yield* ServerSettings.ServerSettingsService;
+      yield* settings.setProviderSubscription(modelSelection.instanceId, {
+        ownerUserId: "account:alice",
+        sharedUntil: null,
+      });
+      const denied = yield* launches
+        .launch({
+          ...input,
+          commandId: CommandId.make("subscription:denied"),
+          threadId: ThreadId.make("subscription:denied"),
+        })
+        .pipe(Effect.provideService(RequestAccount, { userId: "account:bob" }), Effect.flip);
+      assert.equal(denied._tag, "ThreadLaunchError");
+      const launched = yield* launches
+        .launch(input)
+        .pipe(Effect.provideService(RequestAccount, { userId: "account:alice" }));
       const generationCommandId = input.commandId;
 
       const projection = yield* threads.getThreadProjection(launched.threadId);
       assert.equal(projection.thread.title, "Generate my title");
+      assert.equal(projection.thread.ownerUserId, "account:alice");
+      assert.equal(projection.thread.billingUserId, "account:alice");
+      assert.equal(projection.runs[0]?.requesterUserId, "account:alice");
       assert.equal(projection.thread.titleRegeneration?.requestId, generationCommandId);
       assert.deepEqual(
         (yield* outbox.listByCommandId(generationCommandId)).map((effect) => effect.request),

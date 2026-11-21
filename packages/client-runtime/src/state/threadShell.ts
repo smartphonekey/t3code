@@ -18,6 +18,7 @@ import { Atom } from "effect/reactivity";
 
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
+import { threadOwnerFilterAtom } from "./threadOwnership.ts";
 import { hiddenThreadKeys, NO_HIDDEN_THREADS } from "./threadTagFilter.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
 import {
@@ -265,6 +266,7 @@ function sameApartFromStreaming(
 }
 
 export function createEnvironmentThreadShellAtoms(input: {
+  readonly ownerFilterAtom?: (environmentId: EnvironmentId) => Atom.Atom<string | null>;
   readonly catalogValueAtom: Atom.Atom<EnvironmentCatalogState>;
   readonly snapshotAtom: (
     environmentId: EnvironmentId,
@@ -681,20 +683,34 @@ export function createEnvironmentThreadShellAtoms(input: {
       enabledEnvironmentIds(get(input.catalogValueAtom)),
       (environmentId) => ({
         environmentId,
+        ownerUserId: get(input.ownerFilterAtom?.(environmentId) ?? threadOwnerFilterAtom),
         hiddenTags: get(input.hiddenThreadTagsAtom(environmentId)),
       }),
     );
-    // Read shells only while some environment hides tags, so streaming ticks cost nothing otherwise.
-    if (!environments.some((environment) => environment.hiddenTags !== null)) {
+    // Avoid reading shells while neither ownership nor tags filter the list.
+    if (
+      !environments.some(
+        (environment) => environment.ownerUserId !== null || environment.hiddenTags !== null,
+      )
+    ) {
       previousHiddenThreadKeys = NO_HIDDEN_THREADS;
       return NO_HIDDEN_THREADS;
     }
-    const next = hiddenThreadKeys(
-      environments.map((environment) => ({
-        ...environment,
-        threads: get(environmentThreadsAtom(environment.environmentId)),
-      })),
+    const next = new Set(
+      hiddenThreadKeys(
+        environments.map((environment) => ({
+          ...environment,
+          threads: get(environmentThreadsAtom(environment.environmentId)),
+        })),
+      ),
     );
+    for (const { environmentId, ownerUserId } of environments) {
+      if (ownerUserId === null) continue;
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
+        if (thread.ownerUserId !== ownerUserId)
+          next.add(threadKey({ environmentId, threadId: thread.id }));
+      }
+    }
     if (
       next.size === previousHiddenThreadKeys.size &&
       [...next].every((key) => previousHiddenThreadKeys.has(key))
@@ -707,7 +723,9 @@ export function createEnvironmentThreadShellAtoms(input: {
 
   const anyEnvironmentHidingAtom = Atom.make((get) =>
     Array.from(enabledEnvironmentIds(get(input.catalogValueAtom))).some(
-      (environmentId) => get(input.hiddenThreadTagsAtom(environmentId)) !== null,
+      (environmentId) =>
+        get(input.ownerFilterAtom?.(environmentId) ?? threadOwnerFilterAtom) !== null ||
+        get(input.hiddenThreadTagsAtom(environmentId)) !== null,
     ),
   ).pipe(Atom.withLabel("environment-any-hiding-thread-tags"));
 

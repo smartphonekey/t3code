@@ -24,6 +24,8 @@ import {
 import { threadContextsOutsideEnvironment } from "@t3tools/shared/composerContextReferences";
 import { isTriagePrompt, replaceTriagePlaybookLink } from "@t3tools/shared/triagePrompt";
 import * as Arr from "effect/Array";
+import { orderSubscriptionProviders } from "@t3tools/contracts";
+import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { pipe } from "effect/Function";
 
 import { useProjects, useServerConfigs, useThreadShells } from "../../state/entities";
@@ -363,6 +365,7 @@ export function NewTaskFlowProvider(
   const linkedEnvironments = useLinkedEnvironments(selectedProject?.environmentId ?? null);
   const storedStickyModelSelection = useStickyComposerModelSelection();
   const modelSelectionNow = useNowMinuteMs();
+  const subscriptionUserId = useAtomValue(managedRelaySessionAtom)?.accountId ?? null;
   const projectDefaults = useNewTaskProjectDefaults(selectedProject);
   const isScratchDraft = projectDefaults.isScratch;
   const serverConfigs = useServerConfigs();
@@ -432,10 +435,19 @@ export function NewTaskFlowProvider(
     (workspaceMode === "worktree"
       ? selectedProject?.workspaceRoot
       : (selectedWorktreePath ?? selectedProject?.workspaceRoot)) || null;
-  const selectedEnvironmentServerConfig = serverConfigForCwd(
-    projectDefaults.serverConfig,
-    workspaceCwd,
-  );
+  const rawServerConfig = serverConfigForCwd(projectDefaults.serverConfig, workspaceCwd);
+  const selectedEnvironmentServerConfig =
+    rawServerConfig === null
+      ? null
+      : {
+          ...rawServerConfig,
+          providers: orderSubscriptionProviders(
+            rawServerConfig.providers,
+            rawServerConfig.settings.providerSubscriptions,
+            subscriptionUserId,
+            modelSelectionNow,
+          ),
+        };
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
   // value keeps tracking the server setting when the config loads late.
@@ -462,11 +474,33 @@ export function NewTaskFlowProvider(
     selectedProjectDraft.modelSelection ?? null,
     selectedProject?.id ?? null,
   );
-  const projectDefaultModelSelection = resolveDefaultableModelSelection(
+  const configuredProjectDefaultModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
     projectSettings.settings.defaultModelSelection,
     selectedProject?.id ?? null,
   );
+  const defaultDriver = selectedEnvironmentServerConfig?.providers.find(
+    (provider) => provider.instanceId === configuredProjectDefaultModelSelection?.instanceId,
+  )?.driver;
+  const personal = selectedEnvironmentServerConfig?.providers.find(
+    (provider) =>
+      subscriptionUserId !== null &&
+      selectedEnvironmentServerConfig.settings.providerSubscriptions[provider.instanceId]
+        ?.ownerUserId === subscriptionUserId &&
+      (defaultDriver === undefined || provider.driver === defaultDriver) &&
+      provider.enabled &&
+      provider.status === "ready",
+  );
+  const personalModel =
+    personal?.models.find(
+      (model) => model.slug === configuredProjectDefaultModelSelection?.model,
+    ) ??
+    personal?.models.find((model) => model.isDefault) ??
+    personal?.models[0];
+  const projectDefaultModelSelection =
+    personal && personalModel
+      ? { instanceId: personal.instanceId, model: personalModel.slug }
+      : configuredProjectDefaultModelSelection;
   const stickyModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
     storedStickyModelSelection,

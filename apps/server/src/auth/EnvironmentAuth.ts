@@ -56,6 +56,7 @@ import {
   PEER_LINK_PAIRING_SUBJECT_PREFIX,
 } from "../persistence/AuthPairingLinks.ts";
 import { requestUrl } from "../requestUrl.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
 
 const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
@@ -106,6 +107,7 @@ export interface McpClientSession {
 }
 
 export interface AuthenticatedSession {
+  readonly ownerUserId?: string;
   readonly sessionId: AuthSessionId;
   readonly subject: string;
   readonly method: ServerAuthSessionMethod;
@@ -366,6 +368,7 @@ export class ServerAuthConnectDevicesError extends Schema.TaggedError<ServerAuth
 }
 
 export const ServerAuthInternalError = Schema.Union([
+  CloudflareAccessIdentityPairing.CloudflareAccessPairingError,
   ServerAuthBootstrapCredentialValidationError,
   ServerAuthSessionCredentialValidationError,
   ServerAuthAuthenticatedSessionIssueError,
@@ -499,6 +502,13 @@ export class EnvironmentAuth extends Context.Service<
     readonly getSessionState: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthSessionState, ServerAuthInternalError>;
+    readonly establishBrowserSessionFromCloudflareAccessIfGranted: (
+      request: HttpServerRequest.HttpServerRequest,
+      requestMetadata: AuthClientMetadata,
+    ) => Effect.Effect<
+      Option.Option<CloudflareAccessIdentityPairing.CloudflareAccessBrowserSessionBootstrap>,
+      ServerAuthInternalError
+    >;
     readonly createBrowserSession: (
       credential: string,
       requestMetadata: AuthClientMetadata,
@@ -614,6 +624,7 @@ export class EnvironmentAuth extends Context.Service<
     readonly revokeClientSession: (
       currentSessionId: AuthSessionId,
       targetSessionId: AuthSessionId,
+      revokeCloudflareAccessIdentity?: boolean,
     ) => Effect.Effect<boolean, ServerAuthForbiddenOperationError | ServerAuthInternalError>;
     readonly revokeOtherClientSessions: (
       currentSessionId: AuthSessionId,
@@ -814,6 +825,9 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
+  const cloudflareAccess = yield* Effect.serviceOption(
+    CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  );
   const devAuth = resolveReusableDevAuth(config);
 
   const authenticateToken = (
@@ -866,6 +880,14 @@ export const make = Effect.gen(function* () {
     ...DESKTOP_RENDERER_ORIGINS,
     ...config.devAllowedOrigins,
   ]);
+
+  const establishBrowserSessionFromCloudflareAccessIfGranted = Effect.fn(
+    "EnvironmentAuth.establishBrowserSessionFromCloudflareAccessIfGranted",
+  )(function* (request: HttpServerRequest.HttpServerRequest, metadata: AuthClientMetadata) {
+    if (Option.isNone(cloudflareAccess) || !isBrowserOriginAllowed(request, trustedBrowserOrigins))
+      return Option.none<CloudflareAccessIdentityPairing.CloudflareAccessBrowserSessionBootstrap>();
+    return yield* cloudflareAccess.value.resumeBrowserSession(request, metadata);
+  });
 
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
@@ -1434,12 +1456,22 @@ export const make = Effect.gen(function* () {
 
   const listClientSessions: EnvironmentAuth["Service"]["listClientSessions"] = (currentSessionId) =>
     listSessions().pipe(
-      Effect.map((clientSessions) =>
-        clientSessions.map((clientSession): AuthClientSession => ({
-          ...clientSession,
-          ...authScopeResponse(clientSession.scopes),
-          current: clientSession.sessionId === currentSessionId,
-        })),
+      Effect.flatMap((clientSessions) =>
+        Effect.forEach(clientSessions, (clientSession) =>
+          (Option.isSome(cloudflareAccess)
+            ? cloudflareAccess.value.sessionHasStoredCloudflareAccessIdentity(
+                clientSession.sessionId,
+              )
+            : Effect.succeed(false)
+          ).pipe(
+            Effect.map((paired) => ({
+              ...clientSession,
+              ...authScopeResponse(clientSession.scopes),
+              current: clientSession.sessionId === currentSessionId,
+              ...(paired ? { cloudflareAccessIdentityPaired: true as const } : {}),
+            })),
+          ),
+        ),
       ),
       Effect.withSpan("EnvironmentAuth.listClientSessions"),
     );
@@ -1461,9 +1493,13 @@ export const make = Effect.gen(function* () {
 
   const revokeClientSession: EnvironmentAuth["Service"]["revokeClientSession"] = Effect.fn(
     "EnvironmentAuth.revokeClientSession",
-  )(function* (currentSessionId, targetSessionId) {
+  )(function* (currentSessionId, targetSessionId, revokeCloudflareAccessIdentity) {
     if (currentSessionId === targetSessionId) {
       return yield* new ServerAuthForbiddenOperationError({});
+    }
+    if (revokeCloudflareAccessIdentity === true && Option.isSome(cloudflareAccess)) {
+      yield* cloudflareAccess.value.revokeCloudflareAccessIdentityForSession(targetSessionId);
+      return true;
     }
     const targetProofKey = Option.getOrUndefined(yield* proofKeyOf(targetSessionId));
     // Revoking the caller's own device would cut off the caller too.
@@ -1715,6 +1751,7 @@ export const make = Effect.gen(function* () {
       return Effect.succeed(descriptor);
     }),
     getSessionState,
+    establishBrowserSessionFromCloudflareAccessIfGranted,
     createBrowserSession,
     exchangeBootstrapCredentialForAccessToken,
     renewAccessToken,

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
+import { ProviderSubscriptionControls } from "./ProviderSubscriptionControls";
 import { Fragment, useState, type ReactElement, type ReactNode } from "react";
 import { T, useGT, useMessages, Var } from "gt-react";
 import {
@@ -1390,6 +1391,10 @@ export function ProviderInstanceCard({
           }
         />
       </SettingsSection>
+
+      {environmentId !== undefined && liveProvider !== undefined && !readOnly ? (
+        <ProviderSubscriptionControls environmentId={environmentId} provider={liveProvider} />
+      ) : null}
 
       {setup || environmentFields.length > 0 ? (
         <SettingsSection title={gt("Setup")}>

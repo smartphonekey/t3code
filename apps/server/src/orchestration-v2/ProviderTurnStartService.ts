@@ -42,6 +42,7 @@ import {
 import { withTurnStartReservation, withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import { canUseProviderSubscription } from "@t3tools/contracts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { makeRestoreMissingWorktree } from "../workspace/restoreMissingWorktree.ts";
@@ -298,6 +299,7 @@ export const layer: Layer.Layer<
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const projects = yield* ProjectService.ProjectService;
+    const subscriptionSettings = yield* ServerSettings.ServerSettingsService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
@@ -557,6 +559,23 @@ export const layer: Layer.Layer<
         return;
       }
       captureStartingRun(run);
+      const subscription = (yield* subscriptionSettings.getSettings).providerSubscriptions[
+        run.providerInstanceId
+      ];
+      if (
+        !canUseProviderSubscription(
+          subscription,
+          run.requesterUserId === undefined
+            ? (projection.thread.billingUserId ?? null)
+            : run.requesterUserId,
+          DateTime.toEpochMillis(yield* DateTime.now),
+        )
+      )
+        return yield* new ProviderTurnStartError({
+          runId,
+          cause: "Subscription sharing was revoked or expired before this turn could start.",
+        });
+
       const rootNode = projection.nodes.find((candidate) => candidate.id === run.rootNodeId);
       const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
       const providerThread = projection.providerThreads.find(

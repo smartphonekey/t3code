@@ -36,6 +36,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
@@ -289,6 +290,9 @@ export const layer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
     const sessions = yield* SessionStore.SessionStore;
+    const cloudflareAccess = yield* Effect.serviceOption(
+      CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+    );
 
     return handlers
       .handle(
@@ -297,12 +301,36 @@ export const layer = HttpApiBuilder.group(
           function* (args) {
             yield* annotateEnvironmentRequest(args.endpoint.name);
             const request = yield* HttpServerRequest.HttpServerRequest;
-            const result = yield* serverAuth.getSessionState(request);
+            let result = yield* serverAuth.getSessionState(request);
             const credential = EnvironmentAuth.selectRequestCredential(
               request,
               sessions.cookieName,
               sessions.legacyCookieName,
             );
+            if (
+              !result.authenticated &&
+              credential === undefined &&
+              result.sessionMethod === undefined
+            ) {
+              const resumed =
+                yield* serverAuth.establishBrowserSessionFromCloudflareAccessIfGranted(
+                  request,
+                  deriveAuthClientMetadata({ request }),
+                );
+              if (Option.isSome(resumed)) {
+                yield* appendSessionCookie(
+                  request,
+                  sessions.cookieName,
+                  resumed.value.sessionToken,
+                  resumed.value.response.expiresAt,
+                );
+                yield* appendCredentialResponseHeaders;
+                result = CloudflareAccessIdentityPairing.applyCloudflareAccessSessionState(
+                  result,
+                  resumed.value,
+                );
+              }
+            }
             if (
               credential?.source === "legacy-cookie" &&
               result.authenticated &&
@@ -364,6 +392,13 @@ export const layer = HttpApiBuilder.group(
               Effect.succeed(HttpServerResponse.mergeCookies(response, sessionCookies)),
             );
             yield* appendCredentialResponseHeaders;
+            const pairedSession = yield* sessions
+              .verify(result.sessionToken)
+              .pipe(Effect.orElseSucceed(() => null));
+            if (pairedSession !== null) {
+              if (Option.isSome(cloudflareAccess))
+                yield* cloudflareAccess.value.recordPairing(request, pairedSession.sessionId);
+            }
             return result.response;
           },
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
@@ -549,6 +584,7 @@ export const layer = HttpApiBuilder.group(
             const revoked = yield* serverAuth.revokeClientSession(
               session.sessionId,
               args.payload.sessionId,
+              args.payload.revokeCloudflareAccessIdentity,
             );
             return { revoked };
           },

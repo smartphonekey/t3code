@@ -8,7 +8,7 @@ import {
   AuthAccessReadScope,
   ServerSettingsPatch,
   ProviderInstanceMutation,
-  requiredScopesForServerSettingsPatch,
+  requiredScopesForServerSettingsUpdate,
   requiredScopesForProjectMutation,
   ProjectMutation,
   AuthSettingsWriteScope,
@@ -35,6 +35,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { ProviderSubscriptionMutation } from "@t3tools/contracts";
 import * as Layer from "effect/Layer";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import { isProviderSignOutPrompt } from "../orchestration-v2/CommandPolicy.ts";
@@ -268,17 +269,18 @@ export const rpcAuthorizationError = (requiredScope: AuthEnvironmentScope) =>
 const SettingsUpdate = Schema.Struct({
   patch: ServerSettingsPatch,
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
+  providerSubscriptionMutation: Schema.optionalKey(ProviderSubscriptionMutation),
 });
 // Middleware receives the payload already decoded, so it is checked against the decoded shape.
 const decodeSettingsUpdate = Schema.decodeUnknownSync(Schema.toType(SettingsUpdate));
 
 const requiredScopesForSettingsUpdate = (payload: unknown) => {
   const input = decodeSettingsUpdate(payload);
-  const scopes = requiredScopesForServerSettingsPatch(input.patch);
-  if (input.providerInstanceMutation === undefined) return scopes;
-  return Object.values(input.patch).every((value) => value === undefined)
-    ? [AuthProvidersManageScope]
-    : [...new Set([...scopes, AuthProvidersManageScope])];
+  return requiredScopesForServerSettingsUpdate(
+    input.patch,
+    input.providerInstanceMutation !== undefined ||
+      input.providerSubscriptionMutation !== undefined,
+  );
 };
 
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);

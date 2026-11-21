@@ -56,6 +56,7 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
+import { CloudflareAccessIdentitySettings } from "./CloudflareAccessIdentitySettings";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { Input } from "../ui/input";
 import {
@@ -356,6 +357,8 @@ function ConnectionsSettingsContent({
   const [revokingDesktopClientSessionId, setRevokingDesktopClientSessionId] = useState<
     string | null
   >(null);
+  const [pendingCloudflareAccessRevoke, setPendingCloudflareAccessRevoke] =
+    useState<ServerClientSessionRecord | null>(null);
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const [routeTarget, setRouteTarget] = useState<EnvironmentPresentation | null>(null);
@@ -660,6 +663,7 @@ function ConnectionsSettingsContent({
 
   const handleRevokeDesktopClientSession = async (
     sessionId: ServerClientSessionRecord["sessionId"],
+    revokeCloudflareAccessIdentity = false,
   ) => {
     if (
       accessEnvironmentId === null ||
@@ -668,7 +672,13 @@ function ConnectionsSettingsContent({
       return;
     setRevokingDesktopClientSessionId(sessionId);
     setDesktopAccessManagementMutationError(null);
-    const result = await revokeClient({ environmentId: accessEnvironmentId, input: { sessionId } });
+    const result = await revokeClient({
+      environmentId: accessEnvironmentId,
+      input: {
+        sessionId,
+        ...(revokeCloudflareAccessIdentity ? { revokeCloudflareAccessIdentity: true } : {}),
+      },
+    });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       const message =
@@ -817,14 +827,15 @@ function ConnectionsSettingsContent({
         { onSaved: () => resolve(true), onFailed: () => resolve(false) },
       ),
     );
-  const requestRevokeClientSession = (sessionId: ServerClientSessionRecord["sessionId"]) => {
-    const session = desktopClientSessions.find((candidate) => candidate.sessionId === sessionId);
-    if (session?.subject === CLOUD_CONNECT_SESSION_SUBJECT) {
+  const requestRevokeClientSession = (session: ServerClientSessionRecord) => {
+    if (session.cloudflareAccessIdentityPaired) {
+      setPendingCloudflareAccessRevoke(session);
+    } else if (session.subject === CLOUD_CONNECT_SESSION_SUBJECT) {
       requestConnectRevoke(gt("Revoke {name}?", { name: connectDeviceName(session, m) }), () =>
-        handleRevokeDesktopClientSession(sessionId),
+        handleRevokeDesktopClientSession(session.sessionId),
       );
     } else {
-      void handleRevokeDesktopClientSession(sessionId);
+      void handleRevokeDesktopClientSession(session.sessionId);
     }
   };
   const requestRevokeOtherClients = () => {
@@ -1447,6 +1458,9 @@ function ConnectionsSettingsContent({
             ) : null}
           </SettingsSection>
 
+          {canWriteAccess && accessEnvironmentId !== null ? (
+            <CloudflareAccessIdentitySettings environmentId={accessEnvironmentId} />
+          ) : null}
           {canReadAccess || canWriteAccess ? (
             <FoldedSettingsSection
               id="authorized-clients"
@@ -1514,6 +1528,61 @@ function ConnectionsSettingsContent({
             onClose={() => setPendingConnectRevoke(null)}
             requireApproval={requireConnectApproval}
           />
+          <AlertDialog
+            open={pendingCloudflareAccessRevoke !== null}
+            onOpenChange={(open) => {
+              if (!open && pendingCloudflareAccessRevoke !== null) {
+                setPendingCloudflareAccessRevoke(null);
+              }
+            }}
+          >
+            <AlertDialogPopup>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  <T>Revoke Cloudflare Access identity?</T>
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  <T>
+                    This client was paired through Cloudflare Access. Revoke only this browser, or
+                    remove the stored Access identity so every browser they used must pair again
+                    before reconnecting.
+                  </T>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogClose
+                  render={<Button variant="outline" />}
+                  disabled={revokingDesktopClientSessionId !== null}
+                >
+                  <T>Cancel</T>
+                </AlertDialogClose>
+                <Button
+                  variant="outline"
+                  disabled={revokingDesktopClientSessionId !== null}
+                  onClick={() => {
+                    const target = pendingCloudflareAccessRevoke;
+                    if (!target) return;
+                    setPendingCloudflareAccessRevoke(null);
+                    void handleRevokeDesktopClientSession(target.sessionId);
+                  }}
+                >
+                  <T>This browser only</T>
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={revokingDesktopClientSessionId !== null}
+                  onClick={() => {
+                    const target = pendingCloudflareAccessRevoke;
+                    if (!target) return;
+                    setPendingCloudflareAccessRevoke(null);
+                    void handleRevokeDesktopClientSession(target.sessionId, true);
+                  }}
+                >
+                  <T>All browsers for this person</T>
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogPopup>
+          </AlertDialog>
           <AlertDialog
             open={pendingDesktopServerExposureMode !== null && canManageLocalBackend}
             onOpenChange={(open) => {

@@ -29,6 +29,7 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
+import { RequestAccount } from "./auth/RequestAccount.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
@@ -268,13 +269,18 @@ it.effect("queues commands until startup signals readiness", () =>
     const gate = yield* ServerRuntimeStartup.makeCommandGate;
     const count = yield* Ref.make(0);
     const queued = yield* gate
-      .enqueueCommand(Ref.updateAndGet(count, (value) => value + 1))
-      .pipe(Effect.forkScoped);
+      .enqueueCommand(
+        Effect.all({
+          count: Ref.updateAndGet(count, (value) => value + 1),
+          account: RequestAccount,
+        }),
+      )
+      .pipe(Effect.provideService(RequestAccount, { userId: "bob" }), Effect.forkScoped);
 
     yield* Effect.yieldNow;
     assert.equal(yield* Ref.get(count), 0);
     yield* gate.signalCommandReady;
-    assert.equal(yield* Fiber.join(queued), 1);
+    assert.deepEqual(yield* Fiber.join(queued), { count: 1, account: { userId: "bob" } });
   }),
 );
 

@@ -28,6 +28,21 @@ import { makeDpopKey } from "./dpop.testkit.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as AuthHttp from "./http.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as CloudflareAccessIdentityPairing from "./CloudflareAccessIdentityPairing.ts";
+
+const layerCloudflareAccessDisabled = Layer.succeed(
+  CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+  CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing.of({
+    readConfig: () => Effect.succeed({ enabled: false, teamDomain: "", applicationAud: "" }),
+    verifyRequestIdentity: () => Effect.succeedNone,
+    recordPairing: () => Effect.void,
+    getSessionOwnerUserId: () => Effect.succeed(null),
+    resumeBrowserSession: () => Effect.succeedNone,
+    sessionHasStoredCloudflareAccessIdentity: () => Effect.succeed(false),
+    revokeCloudflareAccessIdentityForSession: () => Effect.void,
+  }),
+);
 
 const DEV_TOKEN = "reusable-dev-auth-token-that-is-long-enough";
 class AuthTestApi extends HttpApi.make("environment").add(EnvironmentHttpApi.groups.auth) {}
@@ -50,7 +65,9 @@ const layerEnvironmentAuth = EnvironmentAuth.layer.pipe(
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(ServerSecretStore.layer),
   Layer.provide(ServerEnvironment.layerIdentity),
+  Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerConfig),
+  Layer.provideMerge(layerCloudflareAccessDisabled),
 );
 const layerRoutes = HttpApiBuilder.layer(AuthTestApi).pipe(
   Layer.provide(AuthHttp.layer),

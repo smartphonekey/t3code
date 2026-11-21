@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as SqlError from "effect/sql/SqlError";
+import { RequestAccount } from "../auth/RequestAccount.ts";
 
 import {
   increment,
@@ -426,6 +427,9 @@ export const layerExecutor: Layer.Layer<
                           : { linkedSender: message.linkedSender }),
                       })
                       .pipe(
+                        Effect.provideService(RequestAccount, {
+                          userId: run.requesterUserId ?? null,
+                        }),
                         // A disabled instance cannot retry this completed turn; its result stands.
                         Effect.catchTags({
                           ThreadManagementProviderInstanceDisabledError: (disabledError) =>

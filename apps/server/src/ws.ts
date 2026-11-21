@@ -203,6 +203,8 @@ import { invalidateSettingsSecrets } from "./sourceControl/sourceControlHostSecr
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as ProviderSubscriptions from "./provider/ProviderSubscriptions.ts";
+import * as RequestAccount from "./auth/RequestAccount.ts";
 import { makePrepareTerminalLaunch } from "./workspace/restoreMissingWorktree.ts";
 import { terminalOutputStream, withOutputWindow } from "./terminal/OutputProtocol.ts";
 import { withSocketHeartbeat } from "./socketHeartbeat.ts";
@@ -249,6 +251,7 @@ import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as CloudflareAccessIdentityPairing from "./auth/CloudflareAccessIdentityPairing.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
@@ -1452,6 +1455,7 @@ export const layerWsRpc = (
   Layer.effectContext(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const subscriptions = yield* ProviderSubscriptions.ProviderSubscriptions;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const intakeContext = yield* Effect.context<
@@ -1884,6 +1888,9 @@ export const layerWsRpc = (
         return {
           environment,
           auth,
+          ...(currentSession.ownerUserId === undefined
+            ? {}
+            : { threadOwnerUserId: currentSession.ownerUserId }),
           cwd: config.cwd,
           hostname: yield* HostProcess.Hostname,
           keybindingsConfigPath: config.keybindingsConfigPath,
@@ -2228,6 +2235,9 @@ export const layerWsRpc = (
                     .pipe(
                       Effect.andThen(
                         ThreadMessageIntake.launchThread({
+                          ...(input.ownerUserId === undefined
+                            ? {}
+                            : { ownerUserId: input.ownerUserId }),
                           commandId: input.commandId,
                           ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
                           ...(input.reuseExistingThread === undefined
@@ -2789,16 +2799,24 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.serverUpdateSettings]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
-          Effect.fnUntraced(function* ({ patch, providerInstanceMutation }) {
+          Effect.fnUntraced(function* ({
+            patch,
+            providerInstanceMutation,
+            providerSubscriptionMutation,
+          }) {
             const deviceHosts = patch.deviceHosts
               ? yield* remoteSshDeviceHosts(patch.deviceHosts).pipe(
                   Effect.provide(deviceHostContext),
                 )
               : undefined;
             const nextPatch = { ...patch, ...(deviceHosts ? { deviceHosts } : {}) };
-            const settings = yield* providerInstanceMutation === undefined
-              ? serverSettings.updateSettings(nextPatch)
-              : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
+            const settings = yield* subscriptions.updateSettings({
+              patch: nextPatch,
+              ...(providerInstanceMutation === undefined ? {} : { providerInstanceMutation }),
+              ...(providerSubscriptionMutation === undefined
+                ? {}
+                : { providerSubscriptionMutation }),
+            });
             return ServerSettings.redactServerSettingsForClient(settings, settingsClient);
           }),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
@@ -3717,7 +3735,7 @@ export const layerWsRpc = (
         yield* OtherWsRpcGroup.toHandlers(otherHandlers),
       );
     }),
-  );
+  ).pipe(Layer.provide(ProviderSubscriptions.layer));
 
 // Default socket-level Defect frames end every pending client request.
 export const WS_RPC_SERVER_OPTIONS = {
@@ -3727,6 +3745,7 @@ export const WS_RPC_SERVER_OPTIONS = {
 
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
+    const accountSubscriptions = yield* ProviderSubscriptions.ProviderSubscriptions;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
@@ -3778,6 +3797,14 @@ export const layer = Layer.unwrap(
           ];
         }
         const clientAnalyticsProps = readClientAnalyticsProps(request);
+        const cloudflareAccess = yield* Effect.serviceOption(
+          CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+        );
+        const ownerUserId = Option.isSome(cloudflareAccess)
+          ? yield* cloudflareAccess.value
+              .getSessionOwnerUserId(request, session.sessionId)
+              .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)))
+          : null;
         yield* analytics.recordOwners(readClientOwners(request), "client");
         const reportProfiles = yield* serverBrowser.profileReporter;
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
@@ -3800,7 +3827,7 @@ export const layer = Layer.unwrap(
                             : { surface: clientAnalyticsProps.surface }),
                         })
                         .pipe(Effect.ignore);
-                }),
+                }).pipe(RequestAccount.bindRpc(accountSubscriptions, ownerUserId ?? undefined)),
                 rpcInstrumentationLayer,
               ),
             ),
@@ -3810,7 +3837,7 @@ export const layer = Layer.unwrap(
         }).pipe(
           Effect.provide(
             layerWsRpc(
-              session,
+              { ...session, ...(ownerUserId === null ? {} : { ownerUserId }) },
               clientAnalyticsProps,
               serverBrowser,
               reportProfiles,
@@ -3902,4 +3929,4 @@ export const layer = Layer.unwrap(
       ),
     );
   }),
-).pipe(Layer.provide(NpmRelease.layer));
+).pipe(Layer.provide(NpmRelease.layer), Layer.provide(ProviderSubscriptions.layer));

@@ -111,6 +111,8 @@ import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import { RequestAccount } from "../auth/RequestAccount.ts";
+import { canUseProviderSubscription } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
@@ -4057,7 +4059,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const account = yield* RequestAccount;
+    const ownerUserId = account?.ownerUserId ?? command.ownerUserId ?? account?.userId;
     const thread: OrchestrationV2AppThread = {
+      ...(account === undefined ? {} : { billingUserId: account.userId }),
+      ...(ownerUserId == null ? {} : { ownerUserId }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
@@ -6101,6 +6107,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         type: "fork",
       }),
     );
+    const account = yield* RequestAccount;
+    const ownerUserId = account?.ownerUserId ?? command.ownerUserId ?? account?.userId;
     const { targetThread, transfer } = yield* threadForkService
       .plan({
         sourceProjection,
@@ -6116,6 +6124,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : contextSourcePointForRun(sourceProjection, sourceRun),
         transferId,
         targetThreadId: command.targetThreadId,
+        ...(ownerUserId == null ? {} : { ownerUserId }),
         ...(command.title === undefined ? {} : { title: command.title }),
         ...(command.sideChat ? { sideChat: true } : {}),
         createdBy: command.createdBy,
@@ -7525,6 +7534,41 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = applyToProjection(projection, event);
     }
     let modelSelection = command.modelSelection ?? projection.thread.modelSelection;
+    const requestAccount = yield* RequestAccount;
+    const requesterSourceRun = projection.runs.find(
+      (run) =>
+        run.id === (command.usageLimitContinuationOfRunId ?? command.restartContinuationOfRunId),
+    );
+    const requesterUserId =
+      requestAccount !== undefined
+        ? requestAccount.userId
+        : requesterSourceRun?.requesterUserId !== undefined
+          ? requesterSourceRun.requesterUserId
+          : projection.thread.billingUserId !== undefined
+            ? projection.thread.billingUserId
+            : (projection.runs.at(-1)?.requesterUserId ?? null);
+    const requesterFields =
+      requestAccount === undefined &&
+      projection.thread.billingUserId === undefined &&
+      requesterUserId === null
+        ? {}
+        : { requesterUserId };
+    const subscription = (yield* serverSettings.getSettings.pipe(mapDispatchError(command)))
+      .providerSubscriptions[modelSelection.instanceId];
+    if (
+      !canUseProviderSubscription(
+        subscription,
+        requesterUserId,
+        DateTime.toEpochMillis(yield* DateTime.now),
+      )
+    )
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause:
+          "This subscription is private or its sharing grant has expired. Choose your own or an active shared account.",
+      });
+
     // Native goal commands must not steer an existing turn.
     const parsedGoalCommand = parseGoalCommand(command);
     const goalCommand =
@@ -8163,6 +8207,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ) + 1;
       }
       const run: OrchestrationV2Run = {
+        ...requesterFields,
         id: runId,
         threadId: command.threadId,
         ordinal,
@@ -8605,6 +8650,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 mapDispatchError(command),
               );
       const run: OrchestrationV2Run = {
+        ...requesterFields,
         id: runId,
         threadId: command.threadId,
         ordinal,
@@ -9416,6 +9462,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ),
       );
     const run: OrchestrationV2Run = {
+      ...requesterFields,
       id: runId,
       threadId: command.threadId,
       ordinal,
@@ -10022,6 +10069,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const childThread: OrchestrationV2AppThread = {
         ...makeSubagentChildThread({
           parentThread: parentProjection.thread,
+          ...(parentRun.requesterUserId === undefined
+            ? {}
+            : { requesterUserId: parentRun.requesterUserId }),
           childThreadId,
           parentNodeId: taskNodeId,
           activeProviderThreadId: null,
