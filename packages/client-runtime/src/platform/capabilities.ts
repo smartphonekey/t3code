@@ -6,9 +6,12 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import type * as Option from "effect/Option";
+import * as Option from "effect/Option";
 
 import type { ConnectionAttemptError } from "../connection/model.ts";
+import type { CloudflareAccessSession } from "../cloudflareAccess/credentials.ts";
+
+export type { CloudflareAccessSession };
 
 export interface PreparedSshEnvironment {
   readonly bootstrap: DesktopSshEnvironmentBootstrap;
@@ -64,6 +67,24 @@ export class PrimaryEnvironmentAuth extends Context.Service<
     readonly bearerToken: Effect.Effect<Option.Option<string>, ConnectionAttemptError>;
   }
 >()("@t3tools/client-runtime/platform/capabilities/PrimaryEnvironmentAuth") {}
+
+export class CloudflareAccessGateway extends Context.Service<
+  CloudflareAccessGateway,
+  {
+    readonly read: (
+      origin: string,
+    ) => Effect.Effect<Option.Option<CloudflareAccessSession>, ConnectionAttemptError>;
+    readonly persist: (
+      origin: string,
+      session: CloudflareAccessSession,
+    ) => Effect.Effect<void, ConnectionAttemptError>;
+    readonly clear: (origin: string) => Effect.Effect<void, ConnectionAttemptError>;
+    readonly authenticate: (input: {
+      readonly origin: string;
+      readonly startUrl: string;
+    }) => Effect.Effect<CloudflareAccessSession, ConnectionAttemptError>;
+  }
+>()("@t3tools/client-runtime/platform/capabilities/CloudflareAccessGateway") {}
 
 export class SshEnvironmentGateway extends Context.Service<
   SshEnvironmentGateway,
