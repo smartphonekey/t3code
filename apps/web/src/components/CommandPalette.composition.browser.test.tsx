@@ -7,6 +7,8 @@ import { act, render } from "../../test/render";
 import { CommandPalette } from "./CommandPalette";
 import { openCommandPalette } from "../commandPaletteBus";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { sourceControlEnvironment } from "../state/sourceControl";
+import { SourceControlProviderKind } from "@t3tools/contracts";
 
 const scopes = vi.hoisted(() => ({
   denied: undefined as string | undefined,
@@ -73,7 +75,22 @@ vi.mock("../state/use-atom-command", () => ({
 }));
 vi.mock("../state/use-atom-query-runner", () => ({
   // Doubles as the add-project folder scan, which finds nothing to track.
-  useAtomQueryRunner: () => async () => ({ _tag: "Success", value: { folders: [] } }),
+  useAtomQueryRunner: (family: unknown) => async (target: { input: { repository?: string } }) => ({
+    _tag: "Success",
+    value:
+      family !== sourceControlEnvironment.searchRepositories
+        ? { folders: [] }
+        : target.input.repository === "t3"
+          ? [
+              {
+                provider: SourceControlProviderKind.make("github"),
+                nameWithOwner: "smartphonekey/t3code",
+                url: "https://github.com/smartphonekey/t3code",
+                sshUrl: "git@github.com:smartphonekey/t3code.git",
+              },
+            ]
+          : [],
+  }),
 }));
 vi.mock("../state/environments", async (original) => ({
   ...(await original<typeof import("../state/environments")>()),
@@ -243,4 +260,24 @@ it("tells screen readers whether a new project will be published", async () => {
   await expect.element(option).toHaveAttribute("aria-checked", "false");
   await option.click();
   await expect.element(option).toHaveAttribute("aria-checked", "true");
+});
+
+it("selects an organization repository with the keyboard and shows a no-results message", async () => {
+  setup(undefined, githubAvailable);
+  await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
+  await act(() => openCommandPalette({ open: "add-project" }));
+  await page.getByText("GitHub repository", { exact: true }).click();
+  const input = () => page.getByRole("combobox");
+  await input().fill("missing-repository");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByText("No repositories found.", { exact: true })).toBeVisible();
+  await expect.element(input()).toHaveValue("missing-repository");
+  await input().fill("t3");
+  await expect
+    .element(page.getByText("No repositories found.", { exact: true }))
+    .not.toBeInTheDocument();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("option", { name: /smartphonekey\/t3code/ })).toBeVisible();
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await expect.element(input()).toHaveValue("/workspace/t3code");
 });

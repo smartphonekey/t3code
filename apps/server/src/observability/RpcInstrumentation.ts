@@ -177,6 +177,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.issueTrackersConnect]: "issues",
   [WS_METHODS.issueTrackersBindProject]: "issues",
   [WS_METHODS.sourceControlLookupRepository]: "source-control",
+  [WS_METHODS.sourceControlSearchRepositories]: "source-control",
   [WS_METHODS.sourceControlCloneRepository]: "source-control",
   [WS_METHODS.sourceControlPublishRepository]: "source-control",
   [WS_METHODS.sourceControlSignInStart]: "source-control",
