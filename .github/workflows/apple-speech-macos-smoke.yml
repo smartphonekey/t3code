@@ -1,0 +1,38 @@
+name: Apple Speech macOS smoke
+
+# Release packaging requires the helper; smartphonekey release jobs use hosted
+# macos-26. This keeps the Swift build green on PRs without running a release.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release-smartphonekey.yml"
+      - ".github/workflows/apple-speech-macos-smoke.yml"
+      - "apps/desktop/scripts/build-apple-speech.mjs"
+      - "native/apple-speech/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-helper:
+    if: github.repository == 'smartphonekey/t3code'
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify active Xcode
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun swiftc --version
+
+      - name: Build Apple Speech helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/t3-apple-speech"
+          node apps/desktop/scripts/build-apple-speech.mjs --output "$out" --arch arm64
+          test -x "$out"
