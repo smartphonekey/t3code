@@ -52,6 +52,7 @@ export function subagentThreadTitle(input: {
 
 export function makeSubagentChildThread(input: {
   readonly parentThread: OrchestrationV2AppThread;
+  readonly requesterUserId?: string | null;
   readonly childThreadId: ThreadId;
   readonly parentNodeId: NodeId;
   readonly activeProviderThreadId: ProviderThreadId | null;
@@ -66,6 +67,7 @@ export function makeSubagentChildThread(input: {
   const { delegatedFrom: _delegatedFrom, ...inherited } = input.parentThread;
   return {
     ...inherited,
+    ...(input.requesterUserId === undefined ? {} : { billingUserId: input.requesterUserId }),
     createdBy: input.createdBy,
     creationSource: input.creationSource,
     id: input.childThreadId,

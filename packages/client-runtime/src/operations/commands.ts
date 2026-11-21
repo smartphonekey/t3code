@@ -39,6 +39,7 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { CloudSession } from "../platform/capabilities.ts";
 
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import {
@@ -292,8 +293,22 @@ const allocateCommandId = Effect.fn("EnvironmentCommands.allocateCommandId")(fun
   return CommandId.make(yield* random.uuidV4());
 });
 
-const dispatch = (command: OrchestrationV2Command) =>
-  request(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, command);
+const currentThreadOwner = Effect.gen(function* () {
+  const session = yield* Effect.serviceOption(CloudSession);
+  const identity = Option.isSome(session) ? yield* session.value.identity : Option.none();
+  return Option.isSome(identity) ? { ownerUserId: identity.value.accountId } : {};
+});
+
+const dispatch = Effect.fn("EnvironmentCommands.dispatch")(function* (
+  command: OrchestrationV2Command,
+) {
+  return yield* request(
+    ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+    command.type === "thread.create" || command.type === "thread.fork"
+      ? { ...command, ...(yield* currentThreadOwner) }
+      : command,
+  );
+});
 
 // The socket can close after the server accepted the frame but before it answered.
 // The server replays an accepted commandId from its receipt, so the same command
@@ -795,6 +810,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
                 : { branch: bootstrap.branch }),
             };
     return yield* request(ORCHESTRATION_V2_WS_METHODS.launchThread, {
+      ...(yield* currentThreadOwner),
       commandId,
       creationSource: input.creationSource ?? "web",
       threadId: input.threadId,

@@ -1,3 +1,4 @@
+import { createSubscriptionProvidersAtom } from "./subscriptionProviders.ts";
 import {
   errorI18nMessage,
   type MarkedText,
@@ -596,6 +597,7 @@ export const makeEnvironmentServerConfigState = Effect.fn("EnvironmentServerConf
         usageLimitSources: _sources,
         lastEventLoopStall: _stall,
         serverTime: _serverTime,
+        threadOwnerUserId: _owner,
         ...cacheable
       } = config;
       if (lastPersisted !== undefined && sameCacheValue(lastPersisted, cacheable)) {
@@ -1402,9 +1404,15 @@ export function createServerEnvironmentAtoms<R, E>(
       Atom.withLabel(`environment-data:server:usage-model-filter:${environmentId}`),
     ),
   );
-  const providersValueAtom = Atom.family((environmentId: EnvironmentId) =>
+  const rawProvidersValueAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) => get(configValueAtom(environmentId))?.providers ?? null).pipe(
       Atom.withLabel(`environment-data:server:providers:${environmentId}`),
+    ),
+  );
+  const providersValueAtom = Atom.family((environmentId: EnvironmentId) =>
+    createSubscriptionProvidersAtom(
+      rawProvidersValueAtom(environmentId),
+      settingsValueAtom(environmentId),
     ),
   );
   const welcomeStateFamily = Atom.family((environmentId: EnvironmentId) =>
@@ -1491,6 +1499,7 @@ export function createServerEnvironmentAtoms<R, E>(
     settingsValueAtom,
     hiddenThreadTagsAtom,
     usageModelFilterAtom,
+    rawProvidersValueAtom,
     providersValueAtom,
     providerAuthState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:provider:auth-state",

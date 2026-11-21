@@ -1,3 +1,4 @@
+import { RequestAccount } from "../auth/RequestAccount.ts";
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointId,
@@ -6,6 +7,7 @@ import {
   NodeId,
   ProjectId,
   ProviderInstanceId,
+  MessageId,
   ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
@@ -90,6 +92,7 @@ function layerExecutorFor(input: {
   readonly failFirstStart?: Ref.Ref<boolean>;
   readonly threads?: Partial<ThreadManagementService.ThreadManagementService["Service"]>;
   readonly continueAfterRestart?: boolean;
+  readonly steer?: ProviderTurnControlService.ProviderTurnControlServiceV2Shape["steer"];
   readonly interrupt?: ProviderTurnControlService.ProviderTurnControlServiceV2Shape["interrupt"];
   readonly rollback?: CheckpointRollbackService.CheckpointRollbackServiceV2Shape["execute"];
   readonly respond?: RuntimeRequestService.RuntimeRequestServiceV2["Service"]["respond"];
@@ -100,7 +103,7 @@ function layerExecutorFor(input: {
       ProviderTurnControlService.ProviderTurnControlServiceV2,
       ProviderTurnControlService.ProviderTurnControlServiceV2.of({
         interrupt: input.interrupt ?? (() => Effect.void),
-        steer: () => Effect.void,
+        steer: input.steer ?? (() => Effect.void),
         applyModelSelection: () => Effect.void,
         applyThreadTitle: () => Effect.void,
         interruptAndAwaitTerminal: (request) =>
@@ -837,5 +840,62 @@ it.effect.each([3, 4])(
         yield* Ref.get(events),
         processLossCount > 3 ? ["recover-child"] : ["dispatch", "recover-child"],
       );
+    }),
+);
+
+it.effect.each(["bob", null])(
+  "keeps source requester %s when steering completes before delivery",
+  (requesterUserId) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const messageId = MessageId.make("message:steer-follow-up");
+      const requesters = yield* Ref.make<Array<string | null | undefined>>([]);
+      const layer = layerExecutorFor({
+        events: yield* Ref.make<ReadonlyArray<string>>([]),
+        steer: () =>
+          new ProviderTurnControlService.ProviderTurnControlError({
+            threadId,
+            operation: "steer",
+            providerTurnId,
+            turnCompleted: true,
+          }),
+        threads: {
+          getThreadRecords: () =>
+            Effect.succeed({
+              thread: { billingUserId: "alice" },
+              messages: [
+                {
+                  id: messageId,
+                  runId,
+                  text: "continue",
+                  attachments: [],
+                  createdBy: "agent",
+                  creationSource: "server",
+                },
+              ],
+              runs: [{ id: runId, requesterUserId }],
+            } as never),
+          dispatch: () =>
+            Effect.gen(function* () {
+              const account = yield* RequestAccount;
+              yield* Ref.update(requesters, (all) => [...all, account?.userId]);
+              return { sequence: 1, storedEvents: [] };
+            }),
+        },
+      });
+      yield* Effect.gen(function* () {
+        const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+        yield* executor.execute({
+          ...restartEffect(now, { type: "detach" }),
+          request: {
+            type: "provider-turn.steer",
+            providerSessionId: oldSessionId,
+            providerThreadId,
+            providerTurnId,
+            messageId,
+          },
+        });
+      }).pipe(Effect.provide(layer));
+      assert.deepEqual(yield* Ref.get(requesters), [requesterUserId]);
     }),
 );

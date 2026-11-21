@@ -1,3 +1,4 @@
+import * as ProviderSubscriptions from "./provider/ProviderSubscriptions.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -240,6 +241,7 @@ import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as CloudflareAccessIdentityPairing from "./auth/CloudflareAccessIdentityPairing.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
@@ -1443,6 +1445,7 @@ export const layerWsRpc = (
   Layer.effectContext(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const subscriptions = yield* ProviderSubscriptions.ProviderSubscriptions;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const intakeContext = yield* Effect.context<
@@ -1866,6 +1869,9 @@ export const layerWsRpc = (
         return {
           environment,
           auth,
+          ...(currentSession.ownerUserId === undefined
+            ? {}
+            : { threadOwnerUserId: currentSession.ownerUserId }),
           cwd: config.cwd,
           hostname: yield* HostProcess.Hostname,
           keybindingsConfigPath: config.keybindingsConfigPath,
@@ -2206,6 +2212,9 @@ export const layerWsRpc = (
                     .pipe(
                       Effect.andThen(
                         ThreadMessageIntake.launchThread({
+                          ...(input.ownerUserId === undefined
+                            ? {}
+                            : { ownerUserId: input.ownerUserId }),
                           commandId: input.commandId,
                           ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
                           ...(input.reuseExistingThread === undefined
@@ -2407,9 +2416,10 @@ export const layerWsRpc = (
         [WS_METHODS.serverAcceptAcpRegistryUrlAuth]: (input) =>
           Effect.annotateCurrentSpan({ "provider.instance_id": input.instanceId }).pipe(
             Effect.andThen(
-              acpRegistryRuntimeCoordinator
-                .acceptUrlAuthentication(input)
-                .pipe(Effect.map((accepted) => ({ accepted }))),
+              subscriptions.revokeForAuthentication(input.instanceId).pipe(
+                Effect.andThen(acpRegistryRuntimeCoordinator.acceptUrlAuthentication(input)),
+                Effect.map((accepted) => ({ accepted })),
+              ),
             ),
           ),
         [WS_METHODS.serverListAcpRegistrySessions]: (input) =>
@@ -2421,12 +2431,18 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({
             "provider.instance_id": input.instanceId,
             "project.id": input.projectId,
-          }).pipe(Effect.andThen(acpRegistrySessions.importSession(input))),
+          }).pipe(
+            Effect.andThen(subscriptions.assertManage(input.instanceId)),
+            Effect.andThen(acpRegistrySessions.importSession(input)),
+          ),
         [WS_METHODS.serverDeleteAcpRegistrySession]: (input) =>
           Effect.annotateCurrentSpan({
             "provider.instance_id": input.instanceId,
             "project.id": input.projectId,
-          }).pipe(Effect.andThen(deleteAcpRegistrySession(input))),
+          }).pipe(
+            Effect.andThen(subscriptions.assertManage(input.instanceId)),
+            Effect.andThen(deleteAcpRegistrySession(input)),
+          ),
         [WS_METHODS.serverListAcpRegistryProviders]: (input) =>
           Effect.annotateCurrentSpan({
             "provider.instance_id": input.instanceId,
@@ -2436,16 +2452,23 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({
             "provider.instance_id": input.instanceId,
             "project.id": input.projectId,
-          }).pipe(Effect.andThen(setAcpRegistryProvider(input))),
+          }).pipe(
+            Effect.andThen(subscriptions.revokeForAuthentication(input.instanceId)),
+            Effect.andThen(setAcpRegistryProvider(input)),
+          ),
         [WS_METHODS.serverDisableAcpRegistryProvider]: (input) =>
           Effect.annotateCurrentSpan({
             "provider.instance_id": input.instanceId,
             "project.id": input.projectId,
-          }).pipe(Effect.andThen(disableAcpRegistryProvider(input))),
+          }).pipe(
+            Effect.andThen(subscriptions.revokeForAuthentication(input.instanceId)),
+            Effect.andThen(disableAcpRegistryProvider(input)),
+          ),
         [WS_METHODS.serverLogoutAcpRegistry]: (input) =>
           Effect.annotateCurrentSpan({ "provider.instance_id": input.instanceId }).pipe(
             Effect.andThen(
               Effect.gen(function* () {
+                yield* subscriptions.revokeForAuthentication(input.instanceId);
                 const { instance, manager } = yield* acpRegistrySessions.sessionManager(
                   input.instanceId,
                 );
@@ -2670,20 +2693,41 @@ export const layerWsRpc = (
             );
             return { outcome };
           }),
-        [WS_METHODS.providerAuthStart]: (input) => providerAuth.start(input, currentSessionId),
+        [WS_METHODS.providerAuthStart]: (input) =>
+          subscriptions
+            .revokeForAuthentication(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.start(input, currentSessionId))),
         [WS_METHODS.providerAuthRespond]: (input) =>
           Effect.annotateCurrentSpan({ instanceId: input.instanceId }).pipe(
+            Effect.andThen(subscriptions.revokeForAuthentication(input.instanceId)),
             Effect.andThen(providerAuth.respond(input, currentSessionId)),
           ),
         [WS_METHODS.providerAuthComplete]: (input) =>
-          providerAuth.complete(input, currentSessionId),
-        [WS_METHODS.chatGptReconnectProfile]: (input) => providerAuth.reconnectProfile(input),
-        [WS_METHODS.chatGptImportProfile]: (input) => providerAuth.importProfile(input),
+          subscriptions
+            .revokeForAuthentication(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.complete(input, currentSessionId))),
+        [WS_METHODS.chatGptReconnectProfile]: (input) =>
+          subscriptions
+            .revokeForAuthentication(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.reconnectProfile(input))),
+        [WS_METHODS.chatGptImportProfile]: (input) =>
+          subscriptions
+            .revokeForAuthentication(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.importProfile(input))),
         [WS_METHODS.chatGptHandoffSubscribe]: (input) =>
           subscribeChatGptHandoff(input, currentSessionId),
-        [WS_METHODS.providerAuthCancel]: (input) => providerAuth.cancel(input, currentSessionId),
-        [WS_METHODS.providerAuthRemoveMethod]: (input) => providerAuth.removeMethod(input),
-        [WS_METHODS.providerAuthLogout]: (input) => providerAuth.logout(input),
+        [WS_METHODS.providerAuthCancel]: (input) =>
+          subscriptions
+            .assertManage(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.cancel(input, currentSessionId))),
+        [WS_METHODS.providerAuthRemoveMethod]: (input) =>
+          subscriptions
+            .revokeForAuthentication(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.removeMethod(input))),
+        [WS_METHODS.providerAuthLogout]: (input) =>
+          subscriptions
+            .revokeForAuthentication(input.instanceId)
+            .pipe(Effect.andThen(providerAuth.logout(input))),
         [WS_METHODS.providerAuthSubscribe]: (input) =>
           providerAuth.subscribe(input, currentSessionId),
         [WS_METHODS.providerInstallStart]: (input) => providerInstallation.start(input),
@@ -2740,16 +2784,24 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.serverUpdateSettings]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
-          Effect.fnUntraced(function* ({ patch, providerInstanceMutation }) {
+          Effect.fnUntraced(function* ({
+            patch,
+            providerInstanceMutation,
+            providerSubscriptionMutation,
+          }) {
             const deviceHosts = patch.deviceHosts
               ? yield* remoteSshDeviceHosts(patch.deviceHosts).pipe(
                   Effect.provide(deviceHostContext),
                 )
               : undefined;
             const nextPatch = { ...patch, ...(deviceHosts ? { deviceHosts } : {}) };
-            const settings = yield* providerInstanceMutation === undefined
-              ? serverSettings.updateSettings(nextPatch)
-              : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
+            const settings = yield* subscriptions.updateSettings({
+              patch: nextPatch,
+              ...(providerInstanceMutation === undefined ? {} : { providerInstanceMutation }),
+              ...(providerSubscriptionMutation === undefined
+                ? {}
+                : { providerSubscriptionMutation }),
+            });
             return ServerSettings.redactServerSettingsForClient(settings, settingsClient);
           }),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
@@ -3621,7 +3673,7 @@ export const layerWsRpc = (
         yield* OtherWsRpcGroup.toHandlers(otherHandlers),
       );
     }),
-  );
+  ).pipe(Layer.provide(ProviderSubscriptions.layer));
 
 // Default socket-level Defect frames end every pending client request.
 export const WS_RPC_SERVER_OPTIONS = {
@@ -3631,6 +3683,7 @@ export const WS_RPC_SERVER_OPTIONS = {
 
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
+    const accountSubscriptions = yield* ProviderSubscriptions.ProviderSubscriptions;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const npmRelease = yield* NpmRelease.NpmRelease;
@@ -3681,6 +3734,14 @@ export const layer = Layer.unwrap(
           ];
         }
         const clientAnalyticsProps = readClientAnalyticsProps(request);
+        const cloudflareAccess = yield* Effect.serviceOption(
+          CloudflareAccessIdentityPairing.CloudflareAccessIdentityPairing,
+        );
+        const ownerUserId = Option.isSome(cloudflareAccess)
+          ? yield* cloudflareAccess.value
+              .getSessionOwnerUserId(request, session.sessionId)
+              .pipe(Effect.catch((error) => failEnvironmentInternal("internal_error", error)))
+          : null;
         yield* analytics.recordOwners(readClientOwners(request), "client");
         const reportProfiles = yield* serverBrowser.profileReporter;
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
@@ -3689,21 +3750,26 @@ export const layer = Layer.unwrap(
             Effect.provideService(RpcServer.Protocol, withOutputWindow(protocol)),
             Effect.provide(
               Layer.merge(
-                RpcAuthorization.layer(session.scopes, (method, payload) => {
-                  // Anonymous product signal: the feature and its enum variant,
-                  // credited to the connecting client's surface only.
-                  const usage = featureUsage(method, payload);
-                  return usage === undefined
-                    ? Effect.void
-                    : analytics
-                        .record("feature.used", {
-                          ...usage,
-                          ...(clientAnalyticsProps.surface === undefined
-                            ? {}
-                            : { surface: clientAnalyticsProps.surface }),
-                        })
-                        .pipe(Effect.ignore);
-                }),
+                RpcAuthorization.layer(
+                  session.scopes,
+                  (method, payload) => {
+                    // Anonymous product signal: the feature and its enum variant,
+                    // credited to the connecting client's surface only.
+                    const usage = featureUsage(method, payload);
+                    return usage === undefined
+                      ? Effect.void
+                      : analytics
+                          .record("feature.used", {
+                            ...usage,
+                            ...(clientAnalyticsProps.surface === undefined
+                              ? {}
+                              : { surface: clientAnalyticsProps.surface }),
+                          })
+                          .pipe(Effect.ignore);
+                  },
+                  accountSubscriptions.authenticate,
+                  ownerUserId ?? undefined,
+                ),
                 rpcInstrumentationLayer,
               ),
             ),
@@ -3713,7 +3779,7 @@ export const layer = Layer.unwrap(
         }).pipe(
           Effect.provide(
             layerWsRpc(
-              session,
+              { ...session, ...(ownerUserId === null ? {} : { ownerUserId }) },
               clientAnalyticsProps,
               serverBrowser,
               reportProfiles,
@@ -3798,4 +3864,4 @@ export const layer = Layer.unwrap(
       ),
     );
   }),
-).pipe(Layer.provide(NpmRelease.layer));
+).pipe(Layer.provide(NpmRelease.layer), Layer.provide(ProviderSubscriptions.layer));

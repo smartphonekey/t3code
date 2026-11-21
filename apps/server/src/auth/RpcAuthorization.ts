@@ -1,3 +1,5 @@
+import { RequestAccount } from "./RequestAccount.ts";
+import { ProviderSubscriptionMutation } from "@t3tools/contracts";
 import {
   CLIENT_GUARDED_RPC_SCOPES,
   type DeviceListInput,
@@ -8,7 +10,7 @@ import {
   AuthAccessReadScope,
   ServerSettingsPatch,
   ProviderInstanceMutation,
-  requiredScopesForServerSettingsPatch,
+  requiredScopesForServerSettingsUpdate,
   requiredScopesForProjectMutation,
   ProjectMutation,
   AuthSettingsWriteScope,
@@ -260,17 +262,18 @@ export const rpcAuthorizationError = (requiredScope: AuthEnvironmentScope) =>
 const SettingsUpdate = Schema.Struct({
   patch: ServerSettingsPatch,
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
+  providerSubscriptionMutation: Schema.optionalKey(ProviderSubscriptionMutation),
 });
 // Middleware receives the payload already decoded, so it is checked against the decoded shape.
 const decodeSettingsUpdate = Schema.decodeUnknownSync(Schema.toType(SettingsUpdate));
 
 const requiredScopesForSettingsUpdate = (payload: unknown) => {
   const input = decodeSettingsUpdate(payload);
-  const scopes = requiredScopesForServerSettingsPatch(input.patch);
-  if (input.providerInstanceMutation === undefined) return scopes;
-  return Object.values(input.patch).every((value) => value === undefined)
-    ? [AuthProvidersManageScope]
-    : [...new Set([...scopes, AuthProvidersManageScope])];
+  return requiredScopesForServerSettingsUpdate(
+    input.patch,
+    input.providerInstanceMutation !== undefined ||
+      input.providerSubscriptionMutation !== undefined,
+  );
 };
 
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);
@@ -348,14 +351,35 @@ const requiredScopesForRpcCall = (
 export const layer = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
   onAuthorized?: (method: string, payload: unknown) => Effect.Effect<void>,
+  authenticateAccount?: (token: string) => Effect.Effect<string, EnvironmentAuthorizationError>,
+  ownerUserId?: string,
 ) =>
-  Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload }) => {
+  Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload, headers }) => {
     const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
     const requiredScope = requiredScopes.find((scope) => !scopes.includes(scope));
     if (requiredScope !== undefined) return Effect.fail(rpcAuthorizationError(requiredScope));
-    return onAuthorized === undefined
-      ? effect
-      : Effect.tap(effect, () => onAuthorized(rpc._tag, payload));
+    return Effect.gen(function* () {
+      const token = headers["x-t3-account-token"];
+      const userId =
+        token === undefined
+          ? null
+          : authenticateAccount === undefined
+            ? yield* new EnvironmentAuthorizationError({
+                message: "Account verification is unavailable.",
+                requiredScope: AuthProvidersManageScope,
+              })
+            : yield* authenticateAccount(token);
+      return yield* (
+        onAuthorized === undefined
+          ? effect
+          : Effect.tap(effect, () => onAuthorized(rpc._tag, payload))
+      ).pipe(
+        Effect.provideService(RequestAccount, {
+          userId,
+          ...(ownerUserId === undefined ? {} : { ownerUserId }),
+        }),
+      );
+    });
   });
 
 /** Retrying can install or restart tools even though ordinary listing is readable. */
