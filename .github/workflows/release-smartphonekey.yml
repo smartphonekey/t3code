@@ -30,7 +30,7 @@ jobs:
   preflight:
     name: Preflight
     if: github.repository == 'smartphonekey/t3code'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     outputs:
       version: ${{ steps.release_meta.outputs.version }}
@@ -71,7 +71,7 @@ jobs:
     name: Resolve public client config
     needs: [preflight]
     if: needs.preflight.result == 'success'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 5
     outputs:
       clerk_publishable_key: ${{ steps.public_config.outputs.clerk_publishable_key }}
@@ -110,7 +110,7 @@ jobs:
     name: Build JS bundle
     needs: [preflight, relay_public_config]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 45
     env:
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
@@ -296,7 +296,7 @@ jobs:
         desktop_win_arm64,
       ]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 30
     permissions:
       contents: write

@@ -1,6 +1,8 @@
 name: CI
 
+# Linux x64 CI jobs default to SmartphoneKey AWS runners (group `spk-ci`, labels `self-hosted` / `linux` / `x64` / `spk-aws`). Roll back to GitHub/Blacksmith without a code change: set repo variable `CI_RUNNER=hosted` (`gh variable set CI_RUNNER -R smartphonekey/t3code -b hosted`).
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -22,7 +24,7 @@ jobs:
   # open: if the diff cannot be resolved, everything runs.
   changes:
     name: Changes
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 5
     outputs:
       typecheck: ${{ steps.detect.outputs.typecheck }}
@@ -43,13 +45,19 @@ jobs:
         with:
           fetch-depth: 2
           sparse-checkout: |
+            /package.json
             /pnpm-workspace.yaml
             /.github/scripts/ci-changes.cjs
             /.github/actions/ci-changes/
+            /.github/actions/setup-spk-aws-host/bootstrap.sh
             /*/package.json
             /*/*/package.json
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Bootstrap spk-aws host
+        if: vars.CI_RUNNER != 'hosted'
+        run: bash .github/actions/setup-spk-aws-host/bootstrap.sh
 
       - name: Detect affected jobs
         id: detect
@@ -64,8 +72,8 @@ jobs:
       contents: read
       id-token: write
     name: Lint
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
+    timeout-minutes: ${{ vars.CI_RUNNER == 'hosted' && 10 || 20 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -126,8 +134,8 @@ jobs:
     name: Build and Typecheck
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.build != 'false' || needs.changes.outputs.typecheck != 'false') }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
+    timeout-minutes: ${{ vars.CI_RUNNER == 'hosted' && 10 || 25 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -139,12 +147,12 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/setup-apt-mirrors
-        if: needs.changes.outputs.build != 'false'
+        if: vars.CI_RUNNER == 'hosted' && needs.changes.outputs.build != 'false'
 
       # Runs in the background while Vite+ installs; the step before the build waits for it.
       # Xvfb is for the desktop launch check below.
       - name: Start installing browser secret helper build libraries
-        if: needs.changes.outputs.build != 'false'
+        if: vars.CI_RUNNER == 'hosted' && needs.changes.outputs.build != 'false'
         run: |
           # Fetch only the indexes these main and universe packages need. The full set is ~42 MB,
           # which a slow mirror can stretch past the wait below.
@@ -190,7 +198,7 @@ jobs:
 
       - name: Finish installing browser secret helper build libraries
         id: apt
-        if: ${{ !cancelled() && needs.changes.outputs.build != 'false' }}
+        if: ${{ !cancelled() && vars.CI_RUNNER == 'hosted' && needs.changes.outputs.build != 'false' }}
         timeout-minutes: 5
         run: |
           until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
@@ -199,7 +207,7 @@ jobs:
 
       - name: Build desktop pipeline
         id: build
-        if: ${{ !cancelled() && steps.electron.outcome == 'success' && steps.apt.outcome == 'success' && needs.changes.outputs.build != 'false' }}
+        if: ${{ !cancelled() && steps.electron.outcome == 'success' && needs.changes.outputs.build != 'false' && (vars.CI_RUNNER != 'hosted' || steps.apt.outcome == 'success') }}
         run: vp run build:desktop
 
       - name: Verify preload bundle output
@@ -255,12 +263,7 @@ jobs:
 
       - name: Install missing Chromium system dependencies
         if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/web/node_modules/playwright/cli.js install-deps chromium
-          fi
+        run: bash .github/actions/setup-spk-aws-host/ensure-playwright-chromium-deps.sh apps/web/node_modules/playwright/cli.js
 
       - name: Boot the built web client
         if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
@@ -288,8 +291,8 @@ jobs:
     name: Test
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test != 'false' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
+    timeout-minutes: ${{ vars.CI_RUNNER == 'hosted' && 10 || 25 }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -301,10 +304,12 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/setup-apt-mirrors
+        if: vars.CI_RUNNER == 'hosted'
 
       # The desktop tests compile the browser secret helper. The install runs in
       # the background while Vite+ installs; the step before the tests waits for it.
       - name: Start installing browser secret helper build libraries
+        if: vars.CI_RUNNER == 'hosted'
         run: |
           # Fetch only the indexes these main and universe packages need. The full set is ~42 MB,
           # which a slow mirror can stretch past the wait below.
@@ -342,6 +347,7 @@ jobs:
         run: node --test .github/scripts/check-nightly-release.test.cjs .github/scripts/vercel-deployment-output.test.cjs .github/scripts/mobile-preview-comment.test.cjs .github/scripts/mobile-ios-preview-record.test.cjs .github/scripts/test-delta.test.cjs
 
       - name: Finish installing browser secret helper build libraries
+        if: vars.CI_RUNNER == 'hosted'
         timeout-minutes: 5
         run: |
           until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
@@ -354,13 +360,18 @@ jobs:
           TEST_PACKAGES: ${{ needs.changes.outputs.test_packages }}
         run: |
           set -o pipefail
+          concurrency=4
+          if [[ "${{ vars.CI_RUNNER }}" != "hosted" ]]; then
+            concurrency=2
+            export VITEST_MAX_WORKERS=2
+          fi
           filters=(--filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web')
           if [[ -n "$TEST_PACKAGES" ]]; then
             filters=()
             for package in $TEST_PACKAGES; do filters+=(--filter "$package"); done
           fi
           # The runner's trace writer can crash on surrogate pairs in test output.
-          vp run --parallel --concurrency-limit 4 "${filters[@]}" test 2>&1 | python3 -u -c '
+          vp run --parallel --concurrency-limit "$concurrency" "${filters[@]}" test 2>&1 | python3 -u -c '
           import sys
           for line in sys.stdin:
               sys.stdout.write(line.encode("ascii", "backslashreplace").decode("ascii"))
@@ -378,8 +389,8 @@ jobs:
     name: Test Web ${{ matrix.shard }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
+    timeout-minutes: ${{ vars.CI_RUNNER == 'hosted' && 10 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -417,12 +428,7 @@ jobs:
         run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
 
       - name: Install missing Chromium system dependencies
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/web/node_modules/playwright/cli.js install-deps chromium
-          fi
+        run: bash .github/actions/setup-spk-aws-host/ensure-playwright-chromium-deps.sh apps/web/node_modules/playwright/cli.js
 
       - name: Test
         run: vp run --filter @t3tools/web test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
@@ -440,7 +446,7 @@ jobs:
       contents: read
       id-token: write
     name: Test Server ${{ matrix.shard }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     # Shards take 2-5 minutes. When the shared task cache throttles reads, each
     # failed fetch stalls vp for 15-90s, which pushed shards past 10 minutes.
     timeout-minutes: 20
@@ -459,6 +465,10 @@ jobs:
             !/.repos/
             !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
           sparse-checkout-cone-mode: false
+
+      - name: Bootstrap spk-aws host
+        if: vars.CI_RUNNER != 'hosted'
+        run: bash .github/actions/setup-spk-aws-host/bootstrap.sh
 
       - name: Detect affected jobs
         id: changes
@@ -493,12 +503,7 @@ jobs:
 
       - name: Install missing Chromium system dependencies
         if: steps.changes.outputs.test_server != 'false'
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/server/node_modules/playwright-core/cli.js install-deps chromium
-          fi
+        run: bash .github/actions/setup-spk-aws-host/ensure-playwright-chromium-deps.sh apps/server/node_modules/playwright-core/cli.js
 
       # Each server test file runs in its own Vitest process, and a fresh install starts
       # Vitest's content-keyed module cache empty, so every file re-transformed its imports.
@@ -570,7 +575,7 @@ jobs:
     name: Rust
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.rust != 'false' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -581,6 +586,10 @@ jobs:
             !/.repos/
             !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
           sparse-checkout-cone-mode: false
+
+      - name: Bootstrap spk-aws host
+        if: vars.CI_RUNNER != 'hosted'
+        run: bash .github/actions/setup-spk-aws-host/bootstrap.sh
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
@@ -637,7 +646,7 @@ jobs:
     name: Release Smoke
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.release_smoke != 'false' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -677,7 +686,7 @@ jobs:
         mobile_native_static_analysis,
         release_smoke,
       ]
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_RUNNER == 'hosted' && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON('["self-hosted","linux","x64","spk-aws"]') }}
     timeout-minutes: 5
     steps:
       - name: Require every job to pass

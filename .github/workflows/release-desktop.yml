@@ -130,7 +130,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.label }}
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ (vars.CI_RUNNER != 'hosted' && ((inputs.platform == 'linux' && inputs.arch == 'x64') || (inputs.platform == 'win' && inputs.verify_runner != ''))) && fromJSON('["self-hosted","linux","x64","spk-aws"]') || inputs.runner }}
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
     timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}
@@ -440,7 +440,15 @@ jobs:
       - name: Install patchelf
         if: inputs.cli_archive && inputs.platform == 'linux'
         shell: bash
-        run: command -v patchelf || { sudo apt-get update && sudo apt-get install -y patchelf; }
+        run: |
+          if ! command -v patchelf >/dev/null 2>&1; then
+            if command -v dnf >/dev/null 2>&1; then
+              sudo dnf install -y patchelf
+            else
+              sudo apt-get update
+              sudo apt-get install -y patchelf
+            fi
+          fi
 
       - name: Build CLI archive
         id: build_cli
@@ -505,10 +513,18 @@ jobs:
         if: inputs.platform == 'linux'
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev pkg-config libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          if command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y libsecret-devel pkgconf-pkg-config gtk3 nss alsa-lib mesa-libgbm
+          else
+            sudo apt-get update
+            sudo apt-get install -y libsecret-1-dev pkg-config libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          fi
           if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            if command -v dnf >/dev/null 2>&1; then
+              sudo dnf install -y ImageMagick
+            else
               sudo apt-get install -y imagemagick
+            fi
           fi
 
           if command -v magick >/dev/null 2>&1; then
