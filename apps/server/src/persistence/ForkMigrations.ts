@@ -9,7 +9,7 @@ import Migration0004 from "./ForkMigrations/004_CloudflareAccessIdentityScopes.t
 
 // Fork-only schema keeps its own ledger, so upstream migration ids never collide with the fork's.
 // Add fork migrations here, never to Migrations.ts.
-export const FORK_MIGRATIONS_TABLE = "fork_sql_migrations";
+const FORK_MIGRATIONS_TABLE = "fork_sql_migrations";
 
 const forkMigrationEntries = [
   [1, "AuthCloudflareAccessIdentities", Migration0001],
@@ -31,7 +31,9 @@ export function withoutLegacyForkMigrations(
 ): ReadonlyArray<MigrationRow> {
   return history.filter(
     (row) =>
-      !LEGACY_UPSTREAM_LEDGER_ROWS.some((legacy) => legacy.id === row.id && legacy.name === row.name),
+      !LEGACY_UPSTREAM_LEDGER_ROWS.some(
+        (legacy) => legacy.id === row.id && legacy.name === row.name,
+      ),
   );
 }
 

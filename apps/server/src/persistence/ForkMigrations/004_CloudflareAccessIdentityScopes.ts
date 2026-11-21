@@ -5,7 +5,9 @@ export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Re-runs on databases that recorded this migration in the upstream ledger as 84; the backfill
   // must not overwrite scopes changed since then.
-  const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(auth_cloudflare_access_identities)`;
+  const columns = yield* sql<{
+    readonly name: string;
+  }>`PRAGMA table_info(auth_cloudflare_access_identities)`;
   if (columns.some((column) => column.name === "scopes_json")) return;
   yield* sql`ALTER TABLE auth_cloudflare_access_identities ADD COLUMN scopes_json TEXT NOT NULL DEFAULT '[]'`;
   yield* sql`ALTER TABLE auth_cloudflare_access_identities ADD COLUMN session_subject TEXT NOT NULL DEFAULT 'cloudflare-access-identity'`;

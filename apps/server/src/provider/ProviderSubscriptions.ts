@@ -107,21 +107,17 @@ export const layer = Layer.effect(
         denied("Your T3 Connect account could not be verified. Sign in again."),
       ),
     );
-    const assertManage = Effect.fn("ProviderSubscriptions.assertManage")(
-      function* (instanceId: ProviderInstanceId) {
-        const account = yield* RequestAccount;
-        const subscription = (yield* settings.getSettings).providerSubscriptions[instanceId];
-        if (
-          account !== undefined &&
-          subscription !== undefined &&
-          subscription.ownerUserId !== account.userId
-        )
-          return yield* denied("Only the subscription owner can change this provider account.");
-      },
-      Effect.mapError(() =>
-        denied("Only the subscription owner can change this provider account."),
-      ),
-    );
+    const assertManage = Effect.fn("ProviderSubscriptions.assertManage")(function* (
+      instanceId: ProviderInstanceId,
+    ) {
+      const account = yield* RequestAccount;
+      if (account === undefined) return;
+      const subscription = (yield* settings.getSettings.pipe(
+        Effect.mapError(() => denied("Could not read subscription access.")),
+      )).providerSubscriptions[instanceId];
+      if (subscription !== undefined && subscription.ownerUserId !== account.userId)
+        return yield* denied("Only the subscription owner can change this provider account.");
+    });
     const mutate = Effect.fn("ProviderSubscriptions.mutate")(function* (
       mutation: ProviderSubscriptionMutation,
     ) {

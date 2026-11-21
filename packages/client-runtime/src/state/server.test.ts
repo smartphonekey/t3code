@@ -1868,7 +1868,11 @@ describe("provider setup commands", () => {
                 supervisor,
               ),
             followStream: (_environmentId, stream) =>
-              Stream.provideService(stream, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+              Stream.provideService(
+                stream,
+                EnvironmentSupervisor.EnvironmentSupervisor,
+                supervisor,
+              ),
           } as EnvironmentRegistry.EnvironmentRegistry["Service"]),
           Layer.succeed(
             Persistence.EnvironmentCacheStore,

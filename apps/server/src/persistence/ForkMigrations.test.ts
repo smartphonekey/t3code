@@ -90,7 +90,13 @@ it.effect("upgrades a database that recorded fork migrations as upstream ids 81-
     );
     assert.deepStrictEqual(
       yield* sql`SELECT identity_key, scopes_json, session_subject FROM auth_cloudflare_access_identities`,
-      [{ identity_key: "paired", scopes_json: '["access:write"]', session_subject: "one-time-token" }],
+      [
+        {
+          identity_key: "paired",
+          scopes_json: '["access:write"]',
+          session_subject: "one-time-token",
+        },
+      ],
     );
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
