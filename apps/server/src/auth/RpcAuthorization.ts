@@ -1,4 +1,3 @@
-import { RequestAccount } from "./RequestAccount.ts";
 import { ProviderSubscriptionMutation } from "@t3tools/contracts";
 import {
   CLIENT_GUARDED_RPC_SCOPES,
@@ -352,35 +351,14 @@ const requiredScopesForRpcCall = (
 export const layer = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
   onAuthorized?: (method: string, payload: unknown) => Effect.Effect<void>,
-  authenticateAccount?: (token: string) => Effect.Effect<string, EnvironmentAuthorizationError>,
-  ownerUserId?: string,
 ) =>
-  Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload, headers }) => {
+  Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload }) => {
     const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
     const requiredScope = requiredScopes.find((scope) => !scopes.includes(scope));
     if (requiredScope !== undefined) return Effect.fail(rpcAuthorizationError(requiredScope));
-    return Effect.gen(function* () {
-      const token = headers["x-t3-account-token"];
-      const userId =
-        token === undefined
-          ? null
-          : authenticateAccount === undefined
-            ? yield* new EnvironmentAuthorizationError({
-                message: "Account verification is unavailable.",
-                requiredScope: AuthProvidersManageScope,
-              })
-            : yield* authenticateAccount(token);
-      return yield* (
-        onAuthorized === undefined
-          ? effect
-          : Effect.tap(effect, () => onAuthorized(rpc._tag, payload))
-      ).pipe(
-        Effect.provideService(RequestAccount, {
-          userId,
-          ...(ownerUserId === undefined ? {} : { ownerUserId }),
-        }),
-      );
-    });
+    return onAuthorized === undefined
+      ? effect
+      : Effect.tap(effect, () => onAuthorized(rpc._tag, payload));
   });
 
 /** Retrying can install or restart tools even though ordinary listing is readable. */

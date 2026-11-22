@@ -2565,28 +2565,27 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
       Layer.succeed(SqlClient.SqlClient, sql),
     );
     const services = AcpRegistrySessions.layer.pipe(Layer.provideMerge(dependencies));
-    // The fork's subscription owner check reads settings on import, so the services (and their
-    // settings database) must outlive client construction; building them in the test scope does that.
-    const rpcContext = yield* Layer.build(
-      layerWsRpc(
-        {
-          sessionId: AuthSessionId.make("acp-test"),
-          subject: "acp-test",
-          method: "browser-session-cookie",
-          scopes: [],
-        },
-        {},
-        yield* ServerBrowser.ServerBrowser,
-        () => Effect.void,
-        { secretReferences: true },
-      ).pipe(
-        Layer.provide(services),
-        Layer.merge(
-          RpcAuthorization.layer([AuthOrchestrationReadScope, AuthOrchestrationOperateScope]),
+    const client = yield* RpcTest.makeClient(acpSessionRpcs).pipe(
+      Effect.provide(
+        layerWsRpc(
+          {
+            sessionId: AuthSessionId.make("acp-test"),
+            subject: "acp-test",
+            method: "browser-session-cookie",
+            scopes: [],
+          },
+          {},
+          yield* ServerBrowser.ServerBrowser,
+          () => Effect.void,
+          { secretReferences: true },
+        ).pipe(
+          Layer.provide(services),
+          Layer.merge(
+            RpcAuthorization.layer([AuthOrchestrationReadScope, AuthOrchestrationOperateScope]),
+          ),
         ),
       ),
     );
-    const client = yield* RpcTest.makeClient(acpSessionRpcs).pipe(Effect.provide(rpcContext));
 
     const listed = yield* client[WS_METHODS.serverListAcpRegistrySessions]({
       instanceId: acpInstanceId,

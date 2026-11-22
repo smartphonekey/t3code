@@ -2,10 +2,11 @@ import {
   AuthProvidersManageScope,
   EnvironmentAuthorizationError,
   nextWeeklySubscriptionReset,
-  type ProviderInstanceId,
+  ProviderInstanceId,
   type ProviderInstanceMutation,
   type ProviderSubscriptionMutation,
   type ServerSettingsPatch,
+  WS_METHODS,
 } from "@t3tools/contracts";
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 import * as Cache from "effect/Cache";
@@ -31,6 +32,31 @@ const denied = (message: string) =>
   new EnvironmentAuthorizationError({ message, requiredScope: AuthProvidersManageScope });
 const AccountClaims = Schema.Struct({ sub: Schema.NonEmptyString });
 
+/**
+ * RPCs that act on one provider account's sign-in or sessions. Only the subscription owner may
+ * call them; "revoke" also ends sharing first, because the account behind it is about to change.
+ */
+export const RPC_GUARDS: Readonly<Record<string, "manage" | "revoke">> = {
+  [WS_METHODS.serverAcceptAcpRegistryUrlAuth]: "revoke",
+  [WS_METHODS.serverImportAcpRegistrySession]: "manage",
+  [WS_METHODS.serverDeleteAcpRegistrySession]: "manage",
+  [WS_METHODS.serverSetAcpRegistryProvider]: "revoke",
+  [WS_METHODS.serverDisableAcpRegistryProvider]: "revoke",
+  [WS_METHODS.serverLogoutAcpRegistry]: "revoke",
+  [WS_METHODS.providerAuthStart]: "revoke",
+  [WS_METHODS.providerAuthRespond]: "revoke",
+  [WS_METHODS.providerAuthComplete]: "revoke",
+  [WS_METHODS.providerAuthCancel]: "manage",
+  [WS_METHODS.providerAuthRemoveMethod]: "revoke",
+  [WS_METHODS.providerAuthLogout]: "revoke",
+  [WS_METHODS.chatGptReconnectProfile]: "revoke",
+  [WS_METHODS.chatGptImportProfile]: "revoke",
+};
+// RPC middleware receives the payload already decoded.
+const decodeGuardedPayload = Schema.decodeUnknownOption(
+  Schema.toType(Schema.Struct({ instanceId: ProviderInstanceId })),
+);
+
 export class ProviderSubscriptions extends Context.Service<
   ProviderSubscriptions,
   {
@@ -40,6 +66,10 @@ export class ProviderSubscriptions extends Context.Service<
     ) => Effect.Effect<void, EnvironmentAuthorizationError>;
     readonly revokeForAuthentication: (
       instanceId: ProviderInstanceId,
+    ) => Effect.Effect<void, EnvironmentAuthorizationError>;
+    readonly guardRpc: (
+      method: string,
+      payload: unknown,
     ) => Effect.Effect<void, EnvironmentAuthorizationError>;
     readonly updateSettings: (input: {
       patch: ServerSettingsPatch;
@@ -153,33 +183,45 @@ export const layer = Layer.effect(
         current?.ownerUserId ?? null,
       );
     });
+    const revokeForAuthentication = Effect.fn("ProviderSubscriptions.revokeForAuthentication")(
+      function* (instanceId: ProviderInstanceId) {
+        yield* assertManage(instanceId);
+        const subscription = (yield* settings.getSettings).providerSubscriptions[instanceId];
+        const account = yield* RequestAccount;
+        if (subscription === undefined && account?.userId) {
+          if ((yield* registry.getInstance(instanceId)) === undefined)
+            return yield* denied("This provider account is no longer available.");
+          yield* settings.setProviderSubscription(
+            instanceId,
+            { ownerUserId: account.userId, sharedUntil: null },
+            null,
+          );
+          return;
+        }
+        if (subscription?.sharedUntil !== null && subscription !== undefined)
+          yield* settings.setProviderSubscription(instanceId, {
+            ...subscription,
+            sharedUntil: null,
+          });
+      },
+      writes.withPermits(1),
+      Effect.mapError(() => denied("Could not revoke sharing before changing sign-in.")),
+    );
     return ProviderSubscriptions.of({
       authenticate,
       assertManage,
-      revokeForAuthentication: Effect.fn("ProviderSubscriptions.revokeForAuthentication")(
-        function* (instanceId) {
-          yield* assertManage(instanceId);
-          const subscription = (yield* settings.getSettings).providerSubscriptions[instanceId];
-          const account = yield* RequestAccount;
-          if (subscription === undefined && account?.userId) {
-            if ((yield* registry.getInstance(instanceId)) === undefined)
-              return yield* denied("This provider account is no longer available.");
-            yield* settings.setProviderSubscription(
-              instanceId,
-              { ownerUserId: account.userId, sharedUntil: null },
-              null,
-            );
-            return;
-          }
-          if (subscription?.sharedUntil !== null && subscription !== undefined)
-            yield* settings.setProviderSubscription(instanceId, {
-              ...subscription,
-              sharedUntil: null,
-            });
-        },
-        writes.withPermits(1),
-        Effect.mapError(() => denied("Could not revoke sharing before changing sign-in.")),
-      ),
+      revokeForAuthentication,
+      // Untraced: this runs for every RPC, and the guards it calls carry their own spans.
+      guardRpc: Effect.fnUntraced(function* (method, payload) {
+        const guard = RPC_GUARDS[method];
+        if (guard === undefined) return;
+        const input = decodeGuardedPayload(payload);
+        if (Option.isNone(input))
+          return yield* denied("This provider account is no longer available.");
+        yield* guard === "manage"
+          ? assertManage(input.value.instanceId)
+          : revokeForAuthentication(input.value.instanceId);
+      }),
       updateSettings: Effect.fn("ProviderSubscriptions.updateSettings")(function* (input) {
         if (input.providerSubscriptionMutation !== undefined) {
           if (
