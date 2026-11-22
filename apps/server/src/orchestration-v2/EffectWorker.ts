@@ -1,4 +1,3 @@
-import { RequestAccount } from "../auth/RequestAccount.ts";
 import { CommandId, type RunId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -13,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as SqlError from "effect/sql/SqlError";
+import { RequestAccount } from "../auth/RequestAccount.ts";
 
 import {
   increment,
