@@ -3,7 +3,13 @@ import * as NodeCrypto from "node:crypto";
 import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
 import * as ConfigProvider from "effect/ConfigProvider";
 import { expect, it } from "@effect/vitest";
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+  WS_METHODS,
+  WsRpcGroup,
+} from "@t3tools/contracts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -126,6 +132,24 @@ it.effect(
       expect(
         (yield* settings.getSettings).providerSubscriptions[instanceId]?.sharedUntil,
       ).toBeNull();
+      const guard = (userId: string, method: string, payload: unknown = { instanceId }) =>
+        subscriptions
+          .guardRpc(method, payload)
+          .pipe(Effect.provideService(RequestAccount, { userId }), Effect.exit);
+      for (const method of Object.keys(Subscriptions.RPC_GUARDS)) {
+        expect((yield* guard("bob", method))._tag, method).toBe("Failure");
+        expect((yield* guard("alice", method, {}))._tag, method).toBe("Failure");
+      }
+      expect((yield* guard("bob", WS_METHODS.serverRefreshProviders))._tag).toBe("Success");
+      yield* change("alice", "share");
+      expect((yield* guard("alice", WS_METHODS.providerAuthCancel))._tag).toBe("Success");
+      expect((yield* settings.getSettings).providerSubscriptions[instanceId]?.sharedUntil).toBe(
+        reset,
+      );
+      expect((yield* guard("alice", WS_METHODS.providerAuthLogout))._tag).toBe("Success");
+      expect(
+        (yield* settings.getSettings).providerSubscriptions[instanceId]?.sharedUntil,
+      ).toBeNull();
     }).pipe(Effect.provide(layerFor())),
 );
 
@@ -216,3 +240,25 @@ it.effect("requires an explicit expiry when no weekly reset is reported", () =>
     ),
   ),
 );
+
+// A new upstream RPC that names a provider account lands here: guard it or list it as open.
+it("decides the subscription guard for every RPC that names a provider account", () => {
+  const open = [
+    WS_METHODS.serverRefreshProviders,
+    WS_METHODS.serverUpdateProvider,
+    WS_METHODS.chatGptHandoffSubscribe,
+    WS_METHODS.providerAuthSubscribe,
+    WS_METHODS.providerInstallStart,
+    WS_METHODS.providerInstallCancel,
+    WS_METHODS.providerInstallSubscribe,
+    WS_METHODS.providerInstallRemove,
+    WS_METHODS.serverListAcpRegistrySessions,
+    WS_METHODS.serverListAcpRegistryProviders,
+  ];
+  const namesAccount = [...WsRpcGroup.requests]
+    .filter(([, rpc]) => "fields" in rpc.payloadSchema && "instanceId" in rpc.payloadSchema.fields)
+    .map(([tag]) => tag);
+  expect(new Set([...Object.keys(Subscriptions.RPC_GUARDS), ...open])).toEqual(
+    new Set(namesAccount),
+  );
+});
