@@ -1,4 +1,3 @@
-import { RequestAccount } from "../auth/RequestAccount.ts";
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointId,
@@ -31,6 +30,7 @@ import * as Ref from "effect/Ref";
 import * as SqlError from "effect/sql/SqlError";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import { RequestAccount } from "../auth/RequestAccount.ts";
 
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
 import * as CheckpointService from "./CheckpointService.ts";

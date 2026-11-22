@@ -1,4 +1,3 @@
-import { RequestAccount } from "../auth/RequestAccount.ts";
 import {
   CommandId,
   MessageId,
@@ -13,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import { RequestAccount } from "../auth/RequestAccount.ts";
 
 import { reportLabel } from "@t3tools/provider-core/server/notification";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
