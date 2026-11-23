@@ -1,7 +1,7 @@
 name: Apple Speech macOS smoke
 
-# Release packaging requires the helper; smartphonekey release jobs use hosted
-# macos-26. This keeps the Swift build green on PRs without running a release.
+# Release packaging requires the helper; fork stable releases skip macOS, but
+# release-desktop still bundles it. This keeps the Swift build green on PRs.
 on:
   pull_request:
     paths:
