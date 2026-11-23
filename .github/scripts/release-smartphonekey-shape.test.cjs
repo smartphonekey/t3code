@@ -17,10 +17,19 @@ test("release-smartphonekey.yml builds four CLI targets without macOS", () => {
   ]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "m"), `missing job ${job}`);
   }
-  assert.match(
-    workflow,
-    /needs:\s*\n\s*\[\s*\n\s*preflight,\s*\n\s*desktop_linux_x64,/s,
-    "release job must wait on the four desktop CLI jobs only",
-  );
+  const releaseJob = workflow.split("\n  release:")[1];
+  assert.ok(releaseJob, "missing release job");
+  const releaseNeeds = releaseJob.match(/^    needs: (.+)$/m)?.[1];
+  assert.ok(releaseNeeds, "release job needs");
+  for (const job of [
+    "preflight",
+    "desktop_linux_x64",
+    "desktop_linux_arm64",
+    "desktop_win_x64",
+    "desktop_win_arm64",
+  ]) {
+    assert.match(releaseNeeds, new RegExp(`\\b${job}\\b`), `release job missing need ${job}`);
+  }
+  assert.doesNotMatch(releaseNeeds, /\bdesktop_mac_arm64\b/);
   assert.doesNotMatch(workflow, /needs\.desktop_mac_arm64/);
 });
