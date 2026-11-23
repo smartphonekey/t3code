@@ -52,6 +52,7 @@ git checkout -B sync origin/main
    | `pnpm-lock.yaml`                               | `git checkout --ours pnpm-lock.yaml && vp i --lockfile-only`                                                    |
    | a workflow whose only fork edit is `runs-on`   | `git checkout --ours <file>`, then `node .agents/skills/sync-upstream/scripts/route-ci-runners.mjs`             |
    | `ci.yml`, `release.yml`, `release-desktop.yml` | merge the bootstrap and timeout edits by hand, then run the same script for the `runs-on` lines                 |
+   | `release-smartphonekey.yml`                  | keep the fork copy (`--theirs`); it builds four CLI targets and must not gain macOS jobs from upstream `release.yml` |
    | `apps/*/src/i18n/translations/*.json`          | should not happen: only the last commit touches them. Take `--ours`; step 3 recreates them.                     |
    | anything else                                  | by hand. Keep upstream's new behavior and re-apply the fork's intent; read both sides' commits before choosing. |
 
@@ -90,6 +91,10 @@ git checkout -B sync origin/main
 
 ## Invariants to confirm after every sync
 
+- `release-smartphonekey.yml` publishes four CLI archives (Linux x64/arm64, Windows x64/arm64) and
+  must not call `release-desktop.yml` for macOS. Fork deploys use the Linux x64 asset from
+  `SHA256SUMS`; omitting `darwin-arm64` there is fine. Do not copy upstream `release.yml`'s macOS
+  jobs into the fork workflow during a sync.
 - `RpcAuthorization.layer(` has one non-test call site, in `apps/server/src/ws.ts`, and it is
   piped through `RequestAccount.bindRpc`. That wrapper is what gives an RPC its account and runs
   the provider subscription guard; an RPC route without it is unguarded.
